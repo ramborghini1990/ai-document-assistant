@@ -4,8 +4,44 @@ from app.ai.prompts import build_rag_prompt
 from app.rag.loader import extract_text_from_pdf
 from app.rag.chunker import split_text_into_chunks
 from app.rag.embeddings import get_batch_embeddings
-from app.rag.vectorstore import store_chunks_in_chromadb, get_or_create_collection
+from app.rag.vectorstore import store_chunks_in_chromadb
 from app.rag.retriever import retrieve_relevant_chunks
+from app.database.database import (
+    init_db,
+    create_user,
+    create_document,
+    create_conversation,
+    save_message,
+    get_conversation_history,
+)
+
+
+def initialize_session():
+    """مقداردهی اولیه پایگاه داده و تولید شناسه‌های نشست کاربر در صورت عدم وجود."""
+    init_db()
+
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = create_user()
+
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = create_conversation(st.session_state.user_id)
+
+    if "indexed_document" not in st.session_state:
+        st.session_state.indexed_document = None
+
+    if "document_id" not in st.session_state:
+        st.session_state.document_id = None
+
+    if "total_chunks_indexed" not in st.session_state:
+        st.session_state.total_chunks_indexed = 0
+
+
+def reset_conversation():
+    """ایجاد یک نشست گفتگوی تازه و خالی کردن تاریخچه پیام‌ها."""
+    st.session_state.conversation_id = create_conversation(
+        st.session_state.user_id,
+        st.session_state.document_id
+    )
 
 
 def render_ui():
@@ -15,104 +51,117 @@ def render_ui():
         layout="wide",
     )
 
+    initialize_session()
+
+    # نوار کناری (Sidebar) برای مدیریت نشست و متادیتا
+    with st.sidebar:
+        st.header("⚙️ Session & System Info")
+        st.markdown(f"**User ID:** `{st.session_state.user_id[:8]}...`")
+        st.markdown(f"**Conversation ID:** `{st.session_state.conversation_id[:8]}...`")
+
+        if st.session_state.indexed_document:
+            st.divider()
+            st.subheader("Active Document")
+            st.write(f"📄 **{st.session_state.indexed_document}**")
+            st.write(f"🧩 Indexed Chunks: `{st.session_state.total_chunks_indexed}`")
+
+        st.divider()
+        if st.button("🔄 Start New Conversation", use_container_width=True):
+            reset_conversation()
+            st.rerun()
+
     st.title("📄 AI Document Assistant")
-    st.caption("Phase 8 — Complete End-to-End RAG System")
+    st.caption("Phase 10 — Full RAG with SQLite Conversation History")
 
-    # مدیریت State برای رهگیری وضعیت ایندکس سند
-    if "indexed_document" not in st.session_state:
-        st.session_state.indexed_document = None
-    if "total_chunks_indexed" not in st.session_state:
-        st.session_state.total_chunks_indexed = 0
+    col_ingest, col_chat = st.columns([1, 1], gap="large")
 
-    col1, col2 = st.columns([1, 1], gap="medium")
-
-    # ستون چپ: بارگذاری و آماده‌سازی سند در وکتور دیتابیس
-    with col1:
+    # بخش پردازش و ایندکس سند
+    with col_ingest:
         st.subheader("1. Document Ingestion")
         uploaded_file = st.file_uploader(
-            "Upload a PDF document to index:",
+            "Upload a text-based PDF document:",
             type=["pdf"],
-            help="Upload a PDF. It will be extracted, chunked, embedded, and indexed into ChromaDB.",
+            help="Upload a PDF to extract, chunk, embed, and index into ChromaDB.",
         )
 
         if uploaded_file is not None:
-            # فقط در صورتی که فایل جدیدی آپلود شده باشد پردازش انجام شود
             if st.session_state.indexed_document != uploaded_file.name:
                 with st.status("Processing and indexing document...", expanded=True) as status:
                     try:
-                        # گام ۱: استخراج متن
-                        st.write("Extracting text from PDF...")
+                        # ۱. ثبت در SQLite
+                        doc_id = create_document(st.session_state.user_id, uploaded_file.name)
+                        st.session_state.document_id = doc_id
+
+                        # ۲. استخراج متن
+                        st.write("Extracting text from PDF pages...")
                         pages = extract_text_from_pdf(uploaded_file, uploaded_file.name)
 
-                        # گام ۲: تکه‌تکه کردن
-                        st.write("Splitting text into semantic chunks...")
+                        # ۳. خرد کردن
+                        st.write(f"Splitting {len(pages)} pages into chunks...")
                         chunks = split_text_into_chunks(pages, uploaded_file.name)
 
-                        # گام ۳: تولید بردارها
-                        st.write("Generating vector embeddings via Gemini API...")
+                        # ۴. تولید بردارها
+                        st.write(f"Generating embeddings for {len(chunks)} chunks...")
                         chunk_texts = [c["text"] for c in chunks]
                         embeddings = get_batch_embeddings(chunk_texts)
 
-                        # گام ۴: ذخیره در پایگاه داده برداری ChromaDB
-                        st.write("Storing vectors and metadata in ChromaDB...")
+                        # ۵. ذخیره در ChromaDB
+                        st.write("Indexing into ChromaDB vector store...")
                         stored_count = store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
 
                         st.session_state.indexed_document = uploaded_file.name
                         st.session_state.total_chunks_indexed = stored_count
-                        status.update(label="Document successfully processed and indexed!", state="complete", expanded=False)
+                        status.update(label="Document indexed successfully!", state="complete", expanded=False)
 
                     except Exception as e:
-                        status.update(label="Document processing failed!", state="error")
+                        status.update(label="Ingestion failed!", state="error")
                         st.error(f"Error: {str(e)}")
 
         if st.session_state.indexed_document:
             st.success(
-                f"Active Document: **{st.session_state.indexed_document}** "
-                f"({st.session_state.total_chunks_indexed} chunks ready for retrieval)"
+                f"Ready: **{st.session_state.indexed_document}** "
+                f"({st.session_state.total_chunks_indexed} chunks in ChromaDB)"
             )
 
-    # ستون راست: پرسش، بازیابی و تولید پاسخ RAG
-    with col2:
-        st.subheader("2. Ask Questions")
-        
-        user_query = st.text_area(
-            "Ask anything about the uploaded document:",
-            placeholder="e.g., What is the main objective discussed in the document?",
-            height=110,
-        )
+    # بخش پرسش و نمایش تعاملی تاریخچه گفتگو
+    with col_chat:
+        st.subheader("2. Document Chat")
 
-        top_k = st.slider("Number of retrieved chunks (top_k):", min_value=1, max_value=5, value=3)
+        # نمایش تاریخچه پیام‌های ذخیره‌شده در SQLite
+        history = get_conversation_history(st.session_state.conversation_id)
 
-        if st.button("Ask Assistant", type="primary"):
+        chat_container = st.container(height=420)
+        with chat_container:
+            if not history:
+                st.info("No messages in this conversation yet. Ask a question below!")
+            for msg in history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+
+        # دریافت پرسش جدید
+        top_k = st.slider("Context chunks (top_k):", min_value=1, max_value=5, value=3)
+        user_query = st.chat_input("Ask a question about the active document...")
+
+        if user_query:
             if not st.session_state.indexed_document:
-                st.warning("Please upload and index a PDF document first.")
-            elif not user_query.strip():
-                st.warning("Please enter a question.")
+                st.warning("Please upload and index a PDF document before asking questions.")
             else:
-                with st.spinner("Searching document and generating grounded answer..."):
-                    # ۱. بازیابی قطعات مرتبط
+                # ۱. ذخیره سوال کاربر در دیتابیس
+                save_message(st.session_state.conversation_id, "user", user_query)
+
+                # ۲. بازیابی قطعات مرتبط
+                with st.spinner("Searching document context and generating answer..."):
                     retrieved_chunks = retrieve_relevant_chunks(
                         query=user_query,
                         collection_name="document_chunks",
                         top_k=top_k
                     )
 
-                    # ۲. ساخت پرامپت استاندارد RAG
+                    # ۳. ساخت پرامپت RAG و دریافت پاسخ
                     rag_prompt = build_rag_prompt(user_query, retrieved_chunks)
+                    assistant_answer = generate_answer(rag_prompt)
 
-                    # ۳. فراخوانی جمینای
-                    answer = generate_answer(rag_prompt)
+                    # ۴. ذخیره پاسخ دستیار در دیتابیس
+                    save_message(st.session_state.conversation_id, "assistant", assistant_answer)
 
-                    # ۴. نمایش پاسخ
-                    st.subheader("Answer:")
-                    st.markdown(answer)
-
-                    # ۵. نمایش شواهد و منابع بازخوانی‌شده (Grounding Evidence)
-                    with st.expander("🔍 Inspect Retrieved Context & Evidence Sources", expanded=False):
-                        if retrieved_chunks:
-                            for idx, c in enumerate(retrieved_chunks, 1):
-                                st.markdown(f"**Source {idx}:** Page `{c['page_number']}` (Distance: `{c['distance']:.4f}`)")
-                                st.caption(c["text"])
-                                st.divider()
-                        else:
-                            st.info("No matching chunks retrieved.")
+                st.rerun()
