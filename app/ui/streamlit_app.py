@@ -1,5 +1,6 @@
 import streamlit as st
 from app.ai.gemini import generate_answer
+from app.rag.loader import extract_text_from_pdf
 
 
 def render_ui():
@@ -10,22 +11,47 @@ def render_ui():
     )
 
     st.title("📄 AI Document Assistant")
-    st.caption("Phase 2 — Direct Gemini Interaction (RAG pipeline coming soon)")
+    st.caption("Phase 3 — PDF Text Extraction Active")
 
-    # بخش بارگذاری فایل برای فازهای بعدی
+    # متغیرهای حالت نشست (Session State) برای نگهداری سند پردازش‌شده
+    if "extracted_pages" not in st.session_state:
+        st.session_state.extracted_pages = None
+    if "document_name" not in st.session_state:
+        st.session_state.document_name = None
+
+    # بخش آپلود فایل PDF
     st.subheader("1. Document Upload")
     uploaded_file = st.file_uploader(
-        "Upload a PDF document (will be processed in Phase 3)",
+        "Upload a PDF document",
         type=["pdf"],
-        disabled=True,
-        help="PDF processing will be activated in Phase 3.",
+        help="Upload a text-based PDF to extract its contents.",
     )
+
     if uploaded_file is not None:
-        st.info("PDF upload detected. Pipeline will process this in later phases.")
+        if st.session_state.document_name != uploaded_file.name:
+            with st.spinner("Extracting text from PDF..."):
+                try:
+                    pages = extract_text_from_pdf(uploaded_file, uploaded_file.name)
+                    st.session_state.extracted_pages = pages
+                    st.session_state.document_name = uploaded_file.name
+                    st.success(f"Successfully extracted text from {len(pages)} pages!")
+                except Exception as e:
+                    st.session_state.extracted_pages = None
+                    st.session_state.document_name = None
+                    st.error(f"Extraction Error: {str(e)}")
+
+    # نمایش خلاصه سند در صورت وجود
+    if st.session_state.extracted_pages:
+        total_chars = sum(len(p["text"]) for p in st.session_state.extracted_pages)
+        with st.expander("📄 Document Extraction Summary", expanded=False):
+            st.write(f"**Filename:** {st.session_state.document_name}")
+            st.write(f"**Total Pages:** {len(st.session_state.extracted_pages)}")
+            st.write(f"**Total Characters:** {total_chars}")
+            st.text_area("Preview (Page 1):", st.session_state.extracted_pages[0]["text"][:500] + "...", height=120)
 
     st.divider()
 
-    # بخش پرسش و پاسخ متنی اولیه
+    # بخش پرسش و پاسخ
     st.subheader("2. Ask a Question")
     user_query = st.text_area(
         "Enter your question for Gemini:",
