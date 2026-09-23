@@ -1,9 +1,9 @@
 # Project State Tracking
 
 ## Current Status
-- **Current Phase:** Phase 10 — UI Refinement & Conversation History
-- **Current Task:** Integrating SQLite persistence and interactive chat feed into Streamlit UI
-- **Next Phase:** Phase 11 — Testing & Acceptance Criteria Verification
+- **Current Phase:** Phase 11 — Testing & Acceptance Criteria Verification
+- **Current Task:** Executing automated edge-case validation and running acceptance test checklist
+- **Next Phase:** Phase 12 — README & GitHub Polish
 - **Completed Phases:**
   - Phase 0: Project setup, git repo, venv, requirements, environment configuration
   - Phase 1: Standalone Gemini API integration verified (`gemini-3.6-flash`)
@@ -15,12 +15,12 @@
   - Phase 7: Semantic retrieval and distance ranking verified
   - Phase 8: End-to-end RAG grounded prompting verified
   - Phase 9: SQLite relational schema with UUIDs verified
+  - Phase 10: Interactive chat UI with conversation history verified
 
 ## Architecture Decisions
 - Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite.
-- Interactive chat UI powered by `st.chat_message` and session-backed SQLite storage.
-- Session isolation using `uuid.uuid4()` for users and conversations.
 - Direct implementation (No LangChain).
+- Automated test scripts validating isolated failure points.
 
 ## Known Issues / Blockers
 - None.
