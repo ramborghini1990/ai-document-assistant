@@ -1,12 +1,22 @@
-\# AI Document Assistant (RAG MVP)
+\# 📄 AI Document Assistant (RAG MVP)
 
 
 
-A prototype AI-powered document assistant web application using Streamlit, Google Gemini API, ChromaDB, and SQLite.
+An end-to-end, lightweight Retrieval-Augmented Generation (RAG) assistant built from scratch with Python, Streamlit, Google Gemini API, ChromaDB, and SQLite.
 
 
 
-\## Current Status
+This project is a functional MVP developed to demonstrate direct implementation of the core components of modern RAG architectures without relying on high-level orchestration abstractions (such as LangChain or LlamaIndex).
 
-Phase 0 — Project Setup in progress.
+
+
+\---
+
+
+
+\## 🏗️ Architecture \& Data Flow
+
+
+
+The application isolates structured conversational data from vector retrieval:
 
