@@ -2002,613 +2002,1073 @@ Do not falsely claim production readiness.
 
 
 
-\# 26. FINAL DEMO TARGET
+# 26. EXPLICIT MVP ACCEPTANCE CRITERIA
 
+The MVP is considered **COMPLETE and ACCEPTED** only when all mandatory criteria below are satisfied.
 
+Do not declare the MVP complete based on code existing alone.
 
-The final MVP should ideally allow a person to demonstrate:
+A feature is considered complete only when it has been implemented, executed, tested, and confirmed to work.
 
+---
 
+## A. APPLICATION STARTUP
+
+### AC-01 — Application runs
+
+The application must start successfully using the documented command.
+
+Expected behavior:
 
 ```text
-
-1\. Open application
-
-&#x20;       ↓
-
-2\. Upload PDF
-
-&#x20;       ↓
-
-3\. Application processes document
-
-&#x20;       ↓
-
-4\. Ask question
-
-&#x20;       ↓
-
-5\. Retrieve relevant context
-
-&#x20;       ↓
-
-6\. Gemini generates answer
-
-&#x20;       ↓
-
-7\. Display answer
-
-&#x20;       ↓
-
-8\. Show conversation/history if implemented
-
+Run application
+↓
+Streamlit starts
+↓
+Web UI opens
+↓
+No startup exception
 ```
 
+Acceptance condition:
 
+* The application starts without an unhandled exception.
+* The UI loads successfully.
+* Required environment variables are available.
+* Missing configuration produces a clear error instead of a crash.
 
-This is the core demo.
+---
 
+## B. GEMINI INTEGRATION
 
+### AC-02 — Gemini API connection works
 
-Do not add unnecessary features merely to make the project look larger.
+The application must be able to send a prompt to Gemini and receive a response.
 
+Acceptance condition:
 
+```text
+Application
+↓
+Gemini API
+↓
+Valid response
+```
 
-\---
+The API key must NOT be hard-coded.
 
+---
 
+### AC-03 — Gemini errors are handled
 
-\# 27. FUTURE VERSION
+If Gemini is unavailable, the API key is invalid, the request fails, or the API returns an error:
 
+* the application must not silently fail
+* the user must receive a meaningful error message
+* sensitive information must not be exposed
 
+---
 
-After the MVP works, possible Version 2 improvements include:
+# C. PDF UPLOAD
 
+### AC-04 — User can upload a PDF
 
+The UI must provide a PDF upload mechanism.
 
-\* React/Next.js frontend
+Acceptance condition:
 
-\* FastAPI backend
+* User can select a `.pdf` file.
+* Application accepts the file.
+* Application rejects unsupported file types gracefully.
 
-\* PostgreSQL
+---
 
-\* stronger authentication
+### AC-05 — PDF text extraction works
 
-\* better document management
+After uploading a valid text-based PDF:
 
-\* multiple documents
+```text
+PDF
+↓
+Text extraction
+↓
+Non-empty text
+```
 
-\* source citations
+Acceptance condition:
 
-\* streaming responses
+* Text is successfully extracted.
+* Empty or unreadable PDFs are detected.
+* Extraction errors are handled gracefully.
 
-\* better retrieval
+---
 
-\* reranking
+# D. DOCUMENT PROCESSING
 
-\* hybrid search
+### AC-06 — Text is chunked
 
-\* deployment
+Extracted document text must be divided into chunks.
 
-\* Docker
+Acceptance condition:
 
-\* testing improvements
+* The document produces multiple chunks when appropriate.
+* Chunk size is controlled by configuration.
+* Chunk overlap is controlled by configuration.
+* Empty chunks are not stored.
 
-\* monitoring
+---
 
-\* production security
+### AC-07 — Document metadata is preserved
 
+Each chunk stored for retrieval should contain enough metadata to identify its source.
 
+At minimum, where technically available:
 
-These are FUTURE features.
+```text
+document_id
+filename
+chunk_id
+```
 
+If page information is available from the PDF extraction process, page information should also be preserved.
 
+---
 
-Do not implement them prematurely.
+# E. EMBEDDINGS
 
+### AC-08 — Embeddings are generated
 
+Document chunks must be converted into embeddings using a supported embedding model/API.
 
-\---
+Acceptance condition:
 
+```text
+Chunk
+↓
+Embedding
+↓
+Vector
+```
 
+The implementation must use a currently supported API/model.
 
-\# 28. DECISION-MAKING RULE
+Do not use deprecated embedding APIs merely because an old tutorial uses them.
 
+---
 
+# F. CHROMADB
 
-When there are multiple valid technical approaches:
+### AC-09 — Embeddings and chunks are stored in ChromaDB
 
+After document processing:
 
+```text
+Document
+↓
+Chunks
+↓
+Embeddings
+↓
+ChromaDB
+```
 
-1\. Prefer the simplest approach compatible with the MVP.
+Acceptance condition:
 
-2\. Explain the alternatives briefly.
+* ChromaDB collection is created/accessed successfully.
+* Document chunks are stored.
+* Embeddings are stored.
+* Metadata is stored.
+* The application can retrieve the stored data.
 
-3\. Recommend one approach for the current phase.
+---
 
-4\. Do not implement the alternative unless I ask.
+### AC-10 — ChromaDB persistence works
 
+If persistent local storage is being used:
 
+* restarting the application must not unnecessarily destroy the stored vector data
+* previously indexed documents should remain available according to the implemented persistence design
+
+If the MVP intentionally resets the vector database on restart, this limitation must be explicitly documented in the README.
+
+---
+
+# G. RETRIEVAL
+
+### AC-11 — Relevant chunks can be retrieved
+
+Given a question related to the uploaded document:
+
+```text
+Question
+↓
+Question embedding
+↓
+ChromaDB search
+↓
+Relevant chunks
+```
+
+Acceptance condition:
+
+* The retrieval function returns relevant document chunks.
+* `top_k` or equivalent retrieval configuration is controlled.
+* Retrieved chunks include their source metadata.
+
+---
+
+### AC-12 — Retrieval is actually used
+
+The final answer generation must use retrieved document context.
+
+It is NOT acceptable for the application to simply send the user's question directly to Gemini and call the result RAG.
+
+The actual flow must be:
+
+```text
+Question
+↓
+Retrieval
+↓
+Relevant context
+↓
+Gemini
+↓
+Answer
+```
+
+---
+
+# H. RAG ANSWERING
+
+### AC-13 — End-to-end RAG works
+
+The complete pipeline must work:
+
+```text
+Upload PDF
+↓
+Extract text
+↓
+Chunk
+↓
+Embed
+↓
+Store in ChromaDB
+↓
+Ask question
+↓
+Retrieve relevant chunks
+↓
+Build prompt
+↓
+Gemini
+↓
+Answer
+```
+
+Acceptance condition:
+
+A user can upload a document and ask a question whose answer exists in that document, and the application returns an answer based on the document.
+
+---
+
+### AC-14 — Unsupported questions are handled
+
+If the answer cannot be found in the retrieved document context, the application should not confidently fabricate an answer.
+
+The prompt/system behavior should instruct Gemini to acknowledge insufficient information when appropriate.
+
+Example expected behavior:
+
+```text
+Question:
+What is the company's revenue in 2035?
+
+Document:
+Contains no information about this.
+
+Expected:
+The document does not provide enough information to answer this question.
+```
+
+The exact wording may vary.
+
+---
+
+### AC-15 — Context is clearly separated from the question
+
+The Gemini prompt should clearly distinguish:
+
+```text
+SYSTEM INSTRUCTION
+DOCUMENT CONTEXT
+USER QUESTION
+```
+
+The implementation should avoid accidentally mixing arbitrary user input with system instructions.
+
+---
+
+# I. USER INTERFACE
+
+### AC-16 — Basic UI is usable
+
+The Streamlit interface must provide at minimum:
+
+```text
+Application title
+PDF upload
+Document processing status
+Question input
+Ask/submit action
+Answer display
+```
+
+The UI does not need to be production-grade.
+
+It must, however, be understandable to a person seeing the project for the first time.
+
+---
+
+### AC-17 — Loading states are visible
+
+Long-running operations should provide meaningful feedback.
+
+For example:
+
+```text
+Processing document...
+Generating embeddings...
+Searching document...
+Generating answer...
+```
+
+The user should not be left wondering whether the application is frozen.
+
+---
+
+### AC-18 — Errors are visible and understandable
+
+Errors should be displayed in a user-readable way.
+
+Do not expose:
+
+* API keys
+* environment secrets
+* unnecessary stack traces
+* internal credentials
+
+during normal user interaction.
+
+---
+
+# J. SQLITE
+
+SQLite is considered part of the MVP only if the corresponding database phase has been implemented.
+
+### AC-19 — User/document/conversation data can be stored
+
+Where implemented, SQLite must support the required entities.
+
+Initial target:
+
+```text
+users
+documents
+conversations
+messages
+```
+
+The exact schema may evolve.
+
+Acceptance condition:
+
+* Records can be created successfully.
+* Records can be retrieved successfully.
+* UUIDs are used consistently for persistent identifiers where specified.
+
+---
+
+### AC-20 — Conversation history works
+
+If conversation history is included in the MVP:
+
+```text
+User question
+↓
+Gemini answer
+↓
+SQLite
+↓
+Conversation history
+```
+
+The user must be able to retrieve the conversation history within the implemented scope.
+
+If conversation history is intentionally excluded from the final MVP scope, document that explicitly rather than pretending it exists.
+
+---
+
+# K. UUID
+
+### AC-21 — IDs are unique and consistent
+
+Where UUIDs are used:
+
+* IDs must be generated programmatically.
+* IDs must be unique.
+* IDs must remain consistent when records reference each other.
 
 Example:
 
+```text
+user.id
+document.user_id
+conversation.user_id
+message.conversation_id
+```
 
+---
+
+# L. SECURITY
+
+### AC-22 — API key is not committed
+
+The repository must NOT contain the real Gemini API key.
+
+Acceptance condition:
+
+```text
+.env
+↓
+ignored by Git
+
+.env.example
+↓
+committed without secret values
+```
+
+Before the final GitHub push, explicitly verify that no secret has been committed.
+
+---
+
+# M. PROJECT STRUCTURE
+
+### AC-23 — Code is logically organized
+
+The final MVP should not consist of one unnecessarily large Python file.
+
+Responsibilities should be separated logically where appropriate:
+
+```text
+UI
+AI
+RAG
+Database
+Utilities
+```
+
+Do not create files solely to satisfy this criterion.
+
+The structure must remain proportional to the project's actual complexity.
+
+---
+
+# N. TESTING
+
+### AC-24 — Core functionality has been manually tested
+
+At minimum, test the complete happy path:
+
+```text
+Start application
+↓
+Upload valid PDF
+↓
+Document processes successfully
+↓
+Ask question
+↓
+Relevant chunks retrieved
+↓
+Gemini generates answer
+↓
+Answer appears in UI
+```
+
+---
+
+### AC-25 — Basic failure cases are tested
+
+At minimum, test:
+
+1. No PDF uploaded.
+2. Invalid file type.
+3. Empty/unreadable PDF.
+4. Question asked before a document is processed.
+5. Question unrelated to document.
+6. Invalid/missing Gemini API configuration.
+7. Gemini API failure.
+8. Empty retrieval result, if possible.
+
+The application should fail gracefully.
+
+---
+
+# O. GITHUB
+
+### AC-26 — Repository is reproducible
+
+A new developer should be able to understand how to run the project from the README.
+
+README must contain:
+
+```text
+Project overview
+Features
+Architecture
+Tech stack
+Prerequisites
+Installation
+Environment variables
+How to run
+How RAG works
+Project structure
+Known limitations
+Future improvements
+```
+
+---
+
+### AC-27 — Repository does not contain unnecessary artifacts
+
+Do not commit:
+
+* `.env`
+* API keys
+* Python virtual environment
+* unnecessary generated files
+* local caches
+* temporary files
+* private documents
+* ChromaDB local data if the project intentionally treats it as runtime-generated data
+
+Unless a specific artifact is intentionally required for the repository.
+
+---
+
+# P. DEMO
+
+### AC-28 — Complete demo can be performed
+
+The final MVP must support this demonstration:
+
+```text
+1. Open application
+        ↓
+2. Upload a PDF
+        ↓
+3. Wait for processing
+        ↓
+4. Ask a question whose answer exists in the PDF
+        ↓
+5. Application retrieves relevant context
+        ↓
+6. Gemini generates answer
+        ↓
+7. Answer is displayed
+```
+
+If conversation history is implemented:
+
+```text
+8. Show saved conversation/history
+```
+
+---
+
+# Q. DEMO DOCUMENT
+
+### AC-29 — A known test document exists
+
+For reliable demonstration, maintain at least one test PDF with known information.
+
+The document should contain several facts that can be used to verify retrieval.
+
+For example:
+
+```text
+Company name: Example Corp
+Founded: 2018
+Headquarters: Milan
+Employees: 120
+Product: AI platform
+```
+
+Then test questions such as:
+
+```text
+When was the company founded?
+Where is the headquarters?
+How many employees does it have?
+```
+
+The answers must be recoverable from the document.
+
+Do not rely only on arbitrary internet PDFs during the final demo.
+
+---
+
+# R. MVP COMPLETION RULE
+
+The MVP is NOT considered complete merely because:
+
+* the application launches
+* the UI looks good
+* Gemini responds
+* PDFs can be uploaded
+* ChromaDB contains vectors
+
+The MVP is complete only when the **end-to-end user journey works**.
+
+Minimum required end-to-end path:
+
+```text
+PDF
+↓
+Text extraction
+↓
+Chunking
+↓
+Embeddings
+↓
+ChromaDB
+↓
+Question
+↓
+Retrieval
+↓
+Relevant context
+↓
+Gemini
+↓
+Grounded answer
+↓
+Streamlit UI
+```
+
+---
+
+# 26.1 MVP ACCEPTANCE CHECKLIST
+
+Before declaring the MVP complete, run this checklist:
+
+```text
+[ ] Application starts successfully
+[ ] Streamlit UI loads
+[ ] Gemini API works
+[ ] API key is stored securely
+[ ] PDF upload works
+[ ] PDF text extraction works
+[ ] Text chunking works
+[ ] Embeddings work
+[ ] ChromaDB storage works
+[ ] ChromaDB retrieval works
+[ ] Retrieved context is passed to Gemini
+[ ] Gemini generates a document-grounded answer
+[ ] Unknown/unanswerable questions are handled
+[ ] UI shows processing/loading states
+[ ] UI handles errors
+[ ] SQLite works if included in MVP scope
+[ ] UUIDs work consistently
+[ ] Conversation history works if included in MVP scope
+[ ] Core happy path has been manually tested
+[ ] Basic failure cases have been tested
+[ ] README is complete
+[ ] .env is excluded from Git
+[ ] No secrets are committed
+[ ] Repository is clean
+[ ] Demo can be completed from start to finish
+[ ] A known test PDF exists
+```
+
+Only after the relevant mandatory items are checked may you state:
+
+> **MVP ACCEPTED**
+
+If one or more mandatory criteria are not satisfied, explicitly state:
+
+```text
+MVP STATUS: NOT ACCEPTED
+
+Blocking criteria:
+- ...
+- ...
+```
+
+Do not hide incomplete requirements behind vague statements such as "mostly finished."
+
+---
+
+# 26.2 ACCEPTANCE VS FUTURE FEATURES
+
+Do NOT block MVP completion because of features explicitly classified as Version 2.
+
+Examples:
+
+```text
+Not required for MVP:
+
+- React
+- Next.js
+- FastAPI
+- PostgreSQL
+- Docker
+- Kubernetes
+- advanced authentication
+- reranking
+- hybrid search
+- multi-agent systems
+- production monitoring
+- advanced cloud infrastructure
+```
+
+These may be useful later but are not MVP acceptance criteria.
+
+The MVP should be judged against the defined criteria above, not against an imagined production system.
+
+---
+
+# 26.3 ACCEPTANCE TEST REPORT
+
+When I ask whether the MVP is finished, produce an acceptance report in this format:
+
+```text
+MVP ACCEPTANCE REPORT
+
+Status:
+ACCEPTED / NOT ACCEPTED
+
+Core pipeline:
+[PASS/FAIL] PDF extraction
+[PASS/FAIL] Chunking
+[PASS/FAIL] Embeddings
+[PASS/FAIL] ChromaDB storage
+[PASS/FAIL] Retrieval
+[PASS/FAIL] Gemini generation
+[PASS/FAIL] RAG grounding
+[PASS/FAIL] Streamlit UI
+
+Data layer:
+[PASS/FAIL] SQLite
+[PASS/FAIL] UUIDs
+[PASS/FAIL] Conversation history
+
+Security:
+[PASS/FAIL] API key protection
+[PASS/FAIL] .gitignore
+
+Testing:
+[PASS/FAIL] Happy path
+[PASS/FAIL] Failure cases
+
+GitHub:
+[PASS/FAIL] README
+[PASS/FAIL] Clean repository
+
+Demo:
+[PASS/FAIL] Complete demo flow
+
+Blocking issues:
+- ...
+
+Non-blocking issues:
+- ...
+
+Next action:
+- ...
+```
+
+Never mark a criterion as PASS unless there is evidence that it works.
+
+---
+
+# 27. FUTURE VERSION
+
+After the MVP works, possible Version 2 improvements include:
+
+* React/Next.js frontend
+* FastAPI backend
+* PostgreSQL
+* stronger authentication
+* better document management
+* multiple documents
+* source citations
+* streaming responses
+* better retrieval
+* reranking
+* hybrid search
+* deployment
+* Docker
+* testing improvements
+* monitoring
+* production security
+
+These are FUTURE features.
+
+Do not implement them prematurely.
+
+---
+
+# 28. DECISION-MAKING RULE
+
+When there are multiple valid technical approaches:
+
+1. Prefer the simplest approach compatible with the MVP.
+2. Explain the alternatives briefly.
+3. Recommend one approach for the current phase.
+4. Do not implement the alternative unless I ask.
+
+Example:
 
 If there are three ways to store user IDs, do not implement all three.
 
-
-
 Choose one appropriate solution and explain why.
 
+---
 
-
-\---
-
-
-
-\# 29. WHEN I ASK FOR "THE CODE"
-
-
+# 29. WHEN I ASK FOR "THE CODE"
 
 Before giving code, determine:
 
-
-
-\* current phase
-
-\* current architecture
-
-\* relevant files
-
-\* dependencies
-
-\* expected input/output
-
-\* whether the code is compatible with the existing implementation
-
-
+* current phase
+* current architecture
+* relevant files
+* dependencies
+* expected input/output
+* whether the code is compatible with the existing implementation
 
 If any of these are unknown and materially affect the answer, ask me instead of guessing.
 
+---
 
-
-\---
-
-
-
-\# 30. WHEN I SEND YOU CODE
-
-
+# 30. WHEN I SEND YOU CODE
 
 When I send code:
 
+1. Analyze it in the context of this project.
+2. Do not automatically replace it.
+3. Identify bugs precisely.
+4. Explain architectural problems separately from syntax errors.
+5. Preserve working parts.
+6. Modify only what is necessary unless I ask for refactoring.
+7. Check that the change remains compatible with the project roadmap.
 
+---
 
-1\. Analyze it in the context of this project.
-
-2\. Do not automatically replace it.
-
-3\. Identify bugs precisely.
-
-4\. Explain architectural problems separately from syntax errors.
-
-5\. Preserve working parts.
-
-6\. Modify only what is necessary unless I ask for refactoring.
-
-7\. Check that the change remains compatible with the project roadmap.
-
-
-
-\---
-
-
-
-\# 31. WHEN I ASK "WHAT SHOULD WE DO NEXT?"
-
-
+# 31. WHEN I ASK "WHAT SHOULD WE DO NEXT?"
 
 Determine the next step from the project roadmap and current confirmed state.
 
-
-
 Do not jump ahead.
-
-
 
 Answer in this format:
 
-
-
 ```text
-
 Current phase:
-
 What is already working:
-
 What is missing:
-
 Next step:
-
 Why:
-
 Files involved:
-
 Expected result:
-
 How we will test it:
-
 ```
 
+---
 
-
-\---
-
-
-
-\# 32. WHEN I ASK FOR AN EXPLANATION
-
-
+# 32. WHEN I ASK FOR AN EXPLANATION
 
 Explain concepts specifically in relation to this project.
 
-
-
 For example, if I ask:
-
-
 
 "What is ChromaDB?"
 
-
-
 Do not give me only a generic definition.
-
-
 
 Explain:
 
+* what ChromaDB is
+* why this project uses it
+* what data goes into it
+* what comes out of it
+* how it connects to RAG
 
+---
 
-\* what ChromaDB is
-
-\* why this project uses it
-
-\* what data goes into it
-
-\* what comes out of it
-
-\* how it connects to RAG
-
-
-
-\---
-
-
-
-\# 33. CURRENT ROADMAP SUMMARY
-
-
+# 33. CURRENT ROADMAP SUMMARY
 
 The intended roadmap is:
 
-
-
 ```text
-
 PHASE 0
-
 Project setup
-
-&#x20;       ↓
-
+        ↓
 PHASE 1
-
 Gemini API
-
-&#x20;       ↓
-
+        ↓
 PHASE 2
-
 Streamlit UI
-
-&#x20;       ↓
-
+        ↓
 PHASE 3
-
 PDF extraction
-
-&#x20;       ↓
-
+        ↓
 PHASE 4
-
 Chunking
-
-&#x20;       ↓
-
+        ↓
 PHASE 5
-
 Embeddings
-
-&#x20;       ↓
-
+        ↓
 PHASE 6
-
 ChromaDB
-
-&#x20;       ↓
-
+        ↓
 PHASE 7
-
 Retrieval
-
-&#x20;       ↓
-
+        ↓
 PHASE 8
-
 Complete RAG
-
-&#x20;       ↓
-
+        ↓
 PHASE 9
-
 SQLite + UUID
-
-&#x20;       ↓
-
+        ↓
 PHASE 10
-
 UI refinement
-
-&#x20;       ↓
-
+        ↓
 PHASE 11
-
 Testing
-
-&#x20;       ↓
-
+        ↓
 PHASE 12
-
 README + GitHub
-
-&#x20;       ↓
-
+        ↓
 PHASE 13
-
 Demo / presentation
-
 ```
-
-
 
 This is the default roadmap.
 
-
-
 It can change if requirements change, but changes must be explicit.
 
+---
 
-
-\---
-
-
-
-\# 34. SOURCE OF TRUTH
-
-
+# 34. SOURCE OF TRUTH
 
 The following priority order must be used when determining project state:
 
-
-
-1\. Latest explicit instruction from me
-
-2\. Latest code/files I provide
-
-3\. Confirmed test results
-
-4\. Confirmed previous project state
-
-5\. This master instruction
-
-6\. Your assumptions
-
-
+1. Latest explicit instruction from me
+2. Latest code/files I provide
+3. Confirmed test results
+4. Confirmed previous project state
+5. This master instruction
+6. Your assumptions
 
 Never use assumptions when higher-priority information is available.
 
-
-
 If information conflicts, point out the conflict and ask me to resolve it.
 
+---
 
-
-\---
-
-
-
-\# 35. ABSOLUTE RULE
-
-
+# 35. ABSOLUTE RULE
 
 The most important rule is:
 
-
-
-\*\*DO NOT GUESS THE PROJECT STATE.\*\*
-
-
+**DO NOT GUESS THE PROJECT STATE.**
 
 If you know:
 
-
-
 → proceed.
-
-
 
 If you do not know:
 
-
-
 → ask.
-
-
 
 If you suspect:
 
-
-
 → say that it is only a possibility.
-
-
 
 Never silently invent:
 
-
-
-\* files
-
-\* functions
-
-\* completed phases
-
-\* dependencies
-
-\* database tables
-
-\* API behavior
-
-\* project requirements
-
-\* architecture decisions
-
-
+* files
+* functions
+* completed phases
+* dependencies
+* database tables
+* API behavior
+* project requirements
+* architecture decisions
 
 The goal is to build one coherent project step by step, not to generate disconnected code snippets.
 
+---
 
-
-\---
-
-
-
-\# 36. RESPONSE FORMAT FOR DEVELOPMENT TASKS
-
-
+# 36. RESPONSE FORMAT FOR DEVELOPMENT TASKS
 
 For normal implementation tasks, use this structure when appropriate:
 
-
-
-\## Current phase
-
-
+## Current phase
 
 State the phase.
 
-
-
-\## What we are doing
-
-
+## What we are doing
 
 One or two sentences.
 
-
-
-\## Why
-
-
+## Why
 
 Explain why this step is needed.
 
-
-
-\## Changes
-
-
+## Changes
 
 List the files that will change.
 
-
-
-\## Code
-
-
+## Code
 
 Provide the code.
 
-
-
-\## Run
-
-
+## Run
 
 Give the exact command(s).
 
-
-
-\## Test
-
-
+## Test
 
 Explain exactly how I verify it works.
 
-
-
-\## Project state
-
-
+## Project state
 
 ```text
-
 Phase:
-
 Completed:
-
 Current:
-
 Next:
-
 Known issues:
-
 ```
-
-
 
 Do not use this entire format for trivial questions if it would add unnecessary verbosity.
 
+---
 
-
-\---
-
-
-
-\# 37. FIRST ACTION
-
-
+# 37. FIRST ACTION
 
 Before writing substantial project code, determine the actual current state of the repository.
 
-
-
 If I have not provided the repository structure yet, ask me to provide it.
-
-
 
 Do NOT invent the repository structure or claim that files exist.
 
-
-
 The first objective is to establish a verified baseline.
 
-
-
 From that point onward, maintain the project state carefully and build incrementally.
-
-
 
 END OF MASTER PROJECT INSTRUCTION
 
