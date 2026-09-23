@@ -1,86 +1,118 @@
 import streamlit as st
 from app.ai.gemini import generate_answer
+from app.ai.prompts import build_rag_prompt
 from app.rag.loader import extract_text_from_pdf
 from app.rag.chunker import split_text_into_chunks
+from app.rag.embeddings import get_batch_embeddings
+from app.rag.vectorstore import store_chunks_in_chromadb, get_or_create_collection
+from app.rag.retriever import retrieve_relevant_chunks
 
 
 def render_ui():
     st.set_page_config(
         page_title="AI Document Assistant",
         page_icon="📄",
-        layout="centered",
+        layout="wide",
     )
 
     st.title("📄 AI Document Assistant")
-    st.caption("Phase 4 — Chunking & Metadata Pipeline Active")
+    st.caption("Phase 8 — Complete End-to-End RAG System")
 
-    # مدیریت State
-    if "extracted_pages" not in st.session_state:
-        st.session_state.extracted_pages = None
-    if "document_chunks" not in st.session_state:
-        st.session_state.document_chunks = None
-    if "document_name" not in st.session_state:
-        st.session_state.document_name = None
+    # مدیریت State برای رهگیری وضعیت ایندکس سند
+    if "indexed_document" not in st.session_state:
+        st.session_state.indexed_document = None
+    if "total_chunks_indexed" not in st.session_state:
+        st.session_state.total_chunks_indexed = 0
 
-    # بخش آپلود و پردازش PDF
-    st.subheader("1. Document Upload & Processing")
-    uploaded_file = st.file_uploader(
-        "Upload a PDF document",
-        type=["pdf"],
-        help="Upload a text-based PDF to extract and chunk its contents.",
-    )
+    col1, col2 = st.columns([1, 1], gap="medium")
 
-    if uploaded_file is not None:
-        if st.session_state.document_name != uploaded_file.name:
-            with st.spinner("Extracting and chunking document..."):
-                try:
-                    pages = extract_text_from_pdf(uploaded_file, uploaded_file.name)
-                    chunks = split_text_into_chunks(pages, uploaded_file.name)
+    # ستون چپ: بارگذاری و آماده‌سازی سند در وکتور دیتابیس
+    with col1:
+        st.subheader("1. Document Ingestion")
+        uploaded_file = st.file_uploader(
+            "Upload a PDF document to index:",
+            type=["pdf"],
+            help="Upload a PDF. It will be extracted, chunked, embedded, and indexed into ChromaDB.",
+        )
 
-                    st.session_state.extracted_pages = pages
-                    st.session_state.document_chunks = chunks
-                    st.session_state.document_name = uploaded_file.name
+        if uploaded_file is not None:
+            # فقط در صورتی که فایل جدیدی آپلود شده باشد پردازش انجام شود
+            if st.session_state.indexed_document != uploaded_file.name:
+                with st.status("Processing and indexing document...", expanded=True) as status:
+                    try:
+                        # گام ۱: استخراج متن
+                        st.write("Extracting text from PDF...")
+                        pages = extract_text_from_pdf(uploaded_file, uploaded_file.name)
 
-                    st.success(
-                        f"Extracted {len(pages)} pages and generated {len(chunks)} chunks successfully!"
+                        # گام ۲: تکه‌تکه کردن
+                        st.write("Splitting text into semantic chunks...")
+                        chunks = split_text_into_chunks(pages, uploaded_file.name)
+
+                        # گام ۳: تولید بردارها
+                        st.write("Generating vector embeddings via Gemini API...")
+                        chunk_texts = [c["text"] for c in chunks]
+                        embeddings = get_batch_embeddings(chunk_texts)
+
+                        # گام ۴: ذخیره در پایگاه داده برداری ChromaDB
+                        st.write("Storing vectors and metadata in ChromaDB...")
+                        stored_count = store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
+
+                        st.session_state.indexed_document = uploaded_file.name
+                        st.session_state.total_chunks_indexed = stored_count
+                        status.update(label="Document successfully processed and indexed!", state="complete", expanded=False)
+
+                    except Exception as e:
+                        status.update(label="Document processing failed!", state="error")
+                        st.error(f"Error: {str(e)}")
+
+        if st.session_state.indexed_document:
+            st.success(
+                f"Active Document: **{st.session_state.indexed_document}** "
+                f"({st.session_state.total_chunks_indexed} chunks ready for retrieval)"
+            )
+
+    # ستون راست: پرسش، بازیابی و تولید پاسخ RAG
+    with col2:
+        st.subheader("2. Ask Questions")
+        
+        user_query = st.text_area(
+            "Ask anything about the uploaded document:",
+            placeholder="e.g., What is the main objective discussed in the document?",
+            height=110,
+        )
+
+        top_k = st.slider("Number of retrieved chunks (top_k):", min_value=1, max_value=5, value=3)
+
+        if st.button("Ask Assistant", type="primary"):
+            if not st.session_state.indexed_document:
+                st.warning("Please upload and index a PDF document first.")
+            elif not user_query.strip():
+                st.warning("Please enter a question.")
+            else:
+                with st.spinner("Searching document and generating grounded answer..."):
+                    # ۱. بازیابی قطعات مرتبط
+                    retrieved_chunks = retrieve_relevant_chunks(
+                        query=user_query,
+                        collection_name="document_chunks",
+                        top_k=top_k
                     )
-                except Exception as e:
-                    st.session_state.extracted_pages = None
-                    st.session_state.document_chunks = None
-                    st.session_state.document_name = None
-                    st.error(f"Processing Error: {str(e)}")
 
-    # نمایش جزییات فاز ۳ و ۴
-    if st.session_state.document_chunks:
-        chunks = st.session_state.document_chunks
-        with st.expander("🧩 Chunking Summary & Inspection", expanded=False):
-            st.write(f"**Document Name:** {st.session_state.document_name}")
-            st.write(f"**Total Pages:** {len(st.session_state.extracted_pages)}")
-            st.write(f"**Total Chunks:** {len(chunks)}")
-            
-            # پیش‌نمایش چانک اول
-            st.markdown("---")
-            st.markdown("**Chunk 1 Details:**")
-            st.write(f"- **Chunk ID (UUID):** `{chunks[0]['chunk_id']}`")
-            st.write(f"- **Page:** {chunks[0]['page_number']}")
-            st.write(f"- **Length:** {chunks[0]['char_length']} chars")
-            st.text_area("Chunk Content Preview:", chunks[0]["text"][:400] + "...", height=120)
+                    # ۲. ساخت پرامپت استاندارد RAG
+                    rag_prompt = build_rag_prompt(user_query, retrieved_chunks)
 
-    st.divider()
+                    # ۳. فراخوانی جمینای
+                    answer = generate_answer(rag_prompt)
 
-    # بخش پرسش و پاسخ
-    st.subheader("2. Ask a Question")
-    user_query = st.text_area(
-        "Enter your question for Gemini:",
-        placeholder="e.g., What are the core benefits of Retrieval-Augmented Generation?",
-        height=100,
-    )
+                    # ۴. نمایش پاسخ
+                    st.subheader("Answer:")
+                    st.markdown(answer)
 
-    if st.button("Submit Question", type="primary"):
-        if not user_query.strip():
-            st.warning("Please enter a question before submitting.")
-        else:
-            with st.spinner("Generating answer from Gemini..."):
-                response = generate_answer(user_query)
-                st.subheader("Answer:")
-                st.write(response)
+                    # ۵. نمایش شواهد و منابع بازخوانی‌شده (Grounding Evidence)
+                    with st.expander("🔍 Inspect Retrieved Context & Evidence Sources", expanded=False):
+                        if retrieved_chunks:
+                            for idx, c in enumerate(retrieved_chunks, 1):
+                                st.markdown(f"**Source {idx}:** Page `{c['page_number']}` (Distance: `{c['distance']:.4f}`)")
+                                st.caption(c["text"])
+                                st.divider()
+                        else:
+                            st.info("No matching chunks retrieved.")
