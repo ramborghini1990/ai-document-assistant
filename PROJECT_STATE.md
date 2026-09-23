@@ -2,7 +2,7 @@
 
 ## Current Status
 - **Current Phase:** Phase 5 — Embeddings
-- **Current Task:** Implementing vector embeddings using Gemini API
+- **Current Task:** Verifying verified model `gemini-embedding-001`
 - **Next Phase:** Phase 6 — ChromaDB
 - **Completed Phases:**
   - Phase 0: Project setup, git repo, venv, requirements, environment configuration
@@ -13,8 +13,8 @@
 
 ## Architecture Decisions
 - Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite.
-- Chunking: 1000 chars size, 200 chars overlap, UUID-based identifiers.
+- Embedding Model: Verified official `gemini-embedding-001`.
 - Direct implementation (No LangChain).
 
 ## Known Issues / Blockers
-- None.
+- None (Model 404 resolved via direct API discovery).
