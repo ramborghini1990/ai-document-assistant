@@ -146,22 +146,23 @@ def render_ui():
             if not st.session_state.indexed_document:
                 st.warning("Please upload and index a PDF document before asking questions.")
             else:
-                # ۱. ذخیره سوال کاربر در دیتابیس
-                save_message(st.session_state.conversation_id, "user", user_query)
-
-                # ۲. بازیابی قطعات مرتبط
                 with st.spinner("Searching document context and generating answer..."):
-                    retrieved_chunks = retrieve_relevant_chunks(
-                        query=user_query,
-                        collection_name="document_chunks",
-                        top_k=top_k
-                    )
+                    try:
+                        # ۱. بازیابی قطعات مرتبط
+                        retrieved_chunks = retrieve_relevant_chunks(
+                            query=user_query,
+                            collection_name="document_chunks",
+                            top_k=top_k
+                        )
 
-                    # ۳. ساخت پرامپت RAG و دریافت پاسخ
-                    rag_prompt = build_rag_prompt(user_query, retrieved_chunks)
-                    assistant_answer = generate_answer(rag_prompt)
+                        # ۲. ساخت پرامپت و تولید پاسخ
+                        rag_prompt = build_rag_prompt(user_query, retrieved_chunks)
+                        assistant_answer = generate_answer(rag_prompt)
 
-                    # ۴. ذخیره پاسخ دستیار در دیتابیس
-                    save_message(st.session_state.conversation_id, "assistant", assistant_answer)
+                        # ۳. ثبت در دیتابیس فقط در صورت موفقیت کامل
+                        save_message(st.session_state.conversation_id, "user", user_query)
+                        save_message(st.session_state.conversation_id, "assistant", assistant_answer)
+                        st.rerun()
 
-                st.rerun()
+                    except Exception as e:
+                        st.error(f"⚠️ {str(e)}")

@@ -14,30 +14,38 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def generate_answer(prompt: str, model: str = "gemini-3.6-flash", max_retries: int = 2) -> str:
-    """ارسال پرامپت با مدیریت خطا و بازتلاش خودکار در صورت بروز خطای ترافیک یا محدودیت سهمیه."""
+# لیست مدل‌ها جهت سوئیچ خودکار در صورت اشباع ظرفیت
+CANDIDATE_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash"
+]
+
+
+def generate_answer(prompt: str) -> str:
+    """ارسال پرامپت با قابلیت سوئیچ خودکار به مدل‌های جایگزین در صورت پر شدن سهمیه."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
 
     client = get_gemini_client()
+    last_error = ""
 
-    for attempt in range(max_retries + 1):
+    for model_name in CANDIDATE_MODELS:
         try:
             response = client.models.generate_content(
-                model=model,
+                model=model_name,
                 contents=prompt,
             )
-            if not response.text:
-                return "The model returned an empty response."
-            return response.text
-
+            if response.text and response.text.strip():
+                return response.text
         except APIError as e:
-            # اگر خطای ترافیک بالا (503) یا محدودیت موقت تعداد درخواست (429) بود، چند ثانیه صبر و مجدد تلاش کن
-            if attempt < max_retries and ("429" in str(e) or "503" in str(e) or "Quota" in str(e)):
-                time.sleep(4)
+            last_error = e.message
+            # اگر خطای پر شدن سهمیه (429) یا ترافیک (503) بود، مدل بعدی را امتحان کن
+            if "429" in str(e) or "503" in str(e) or "Quota" in str(e):
+                time.sleep(1)
                 continue
-            return f"Gemini API Error: {e.message}"
+            raise RuntimeError(f"Gemini API Error: {e.message}")
         except Exception as e:
-            return f"Unexpected Error: {str(e)}"
+            raise RuntimeError(f"Unexpected Error: {str(e)}")
 
-    return "Service temporarily busy. Please wait a few seconds and try again."
+    raise RuntimeError(f"All models temporarily busy. Details: {last_error}")
