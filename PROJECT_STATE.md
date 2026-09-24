@@ -1,30 +1,17 @@
 # Project State Tracking
 
 ## Current Status
-- **Current Phase:** Phase 18 — Schema-Driven Structured Information Extraction
-- **Current Task:** Verification of extraction engine, normalizers, and anti-hallucination guarantees
-- **Next Phase:** Phase 19 — Extraction Review UI (Interactive table display & field validation in Streamlit)
+- **Current Phase:** Phase 16 & 17 — Multi-Format & Scanned Document Ingestion (Completed)
+- **Current Task:** Verification of Vision OCR on images and scanned PDFs via Tier 1 API
+- **Next Phase:** Phase 20 — Structured Excel Export (ISO 14001 Compliant)
 - **Completed Phases:**
-  - Phase 0: Project setup, git repo, venv, requirements, environment configuration
-  - Phase 1: Standalone Gemini API integration verified (`gemini-3.6-flash`)
-  - Phase 2: Basic Streamlit UI connected to Gemini
-  - Phase 3: PDF text extraction with page tracking verified (`pypdf`)
-  - Phase 4: Text chunking with overlap, metadata tracking, and UUIDs verified
-  - Phase 5: Embeddings generation verified with `gemini-embedding-001`
-  - Phase 6: ChromaDB local persistent storage and upsert verified
-  - Phase 7: Semantic retrieval and distance ranking verified
-  - Phase 8: End-to-end RAG grounded prompting verified
-  - Phase 9: SQLite relational schema with UUIDs verified
-  - Phase 10: Interactive chat UI with conversation history verified
-  - Phase 11: Automated edge-case and error boundary testing verified
-  - Phase 12: Comprehensive portfolio README and clean git hygiene verified
-  - Phase 13: Official MVP Acceptance Report issued
-  - Phase 14: Inspection of current architecture and reference ISO 14001 workbook verified
-  - Phase 15: Multi-file batch upload and cross-document RAG verified
-  - Phase 16: Multi-format support verified for PDF and DOCX
-  - Phase 18: Extraction schemas (Scadenziario, Vehicle/Fuel), normalizers, and strict anti-hallucination engine implemented.
+  - Phase 0 to 15: Foundation, Grounded RAG, Persistent Storage, Batch Ingestion
+  - Phase 16: Multi-format parsing (PDF, DOCX with tables, standalone Images)
+  - Phase 17: Automatic Scanned PDF detection and PyMuPDF page-to-image rasterization with Gemini Vision
+  - Phase 18: Schema-driven extraction engine (Scadenziario, Vehicle/Fuel) with Italian normalizers
+  - Phase 19: Interactive Human-in-the-Loop review UI (`st.data_editor`)
+  - Billing & Capacity: Google AI Studio Tier 1 (1,000 RPM / 2M TPM) active
 
 ## Architecture Decisions
-- Schema-Driven Extraction: Dedicated schemas aligned with client ISO 14001 workbook (`SCADENZIARIO`, `CONSUMI_CARBURANTE`).
-- Anti-Hallucination & Provenance: Explicit `EXTRACTED`, `CALCULATED`, and `MISSING` statuses with source page tracking.
-- Normalization: Independent Italian date parsing (`YYYY-MM-DD`) and numeric cleaning (comma-to-dot floats).
+- Hybrid PDF Ingestion: Digital text extracted directly via pypdf; Scanned pages detected (<30 chars) and rasterized via PyMuPDF for Gemini Vision OCR.
+- Image Processing: Dynamic downsampling to 1600px RGB JPEG for rapid, cost-effective multimodal transcription.

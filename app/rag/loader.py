@@ -4,37 +4,113 @@ from typing import List, Dict, Any
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from PIL import Image
-from app.ai.gemini import get_gemini_client, MODEL_NAME
-from google.genai import types
+from app.ai.gemini import transcribe_image_with_vision
+
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+
+
+def _transcribe_page_image(pil_img: Image.Image, page_num: int, filename: str) -> str:
+    """ارسال تصویر صفحه اسکن‌شده به هوش مصنوعی جهت بازخوانی متن و جداول."""
+    # بهینه‌سازی ابعاد تصویر جهت سرعت و کیفیت ایده‌آل
+    if pil_img.mode != "RGB":
+        pil_img = pil_img.convert("RGB")
+
+    max_dim = 1600
+    if max(pil_img.size) > max_dim:
+        pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+    vision_prompt = (
+        "You are an expert document OCR and transcription assistant. "
+        "Transcribe all readable text, labels, numbers, dates, tables, and document stamps from this document page verbatim. "
+        "Preserve tabular layouts using plain text or markdown tables. Do not summarize; extract the complete content."
+    )
+
+    try:
+        text = transcribe_image_with_vision(pil_img, vision_prompt)
+        return text.strip() if text else ""
+    except Exception as e:
+        print(f"Warning: OCR failed for {filename} (Page {page_num}): {str(e)}")
+        return ""
 
 
 def extract_text_from_pdf(file_stream, filename: str) -> List[Dict[str, Any]]:
-    """استخراج متن از صفحات فایل PDF متنی."""
+    """
+    استخراج هوشمند متن از PDF:
+    اگر صفحه دارای متن دیجیتال باشد، مستقیماً استخراج می‌شود.
+    اگر صفحه اسکن‌شده باشد، خودکار به تصویر تبدیل شده و با بینایی ماشین بازخوانی می‌شود.
+    """
     if not file_stream:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
 
+    file_stream.seek(0)
+    pdf_bytes = file_stream.read()
+
     try:
-        reader = PdfReader(file_stream)
+        reader = PdfReader(io.BytesIO(pdf_bytes))
     except Exception as e:
         raise ValueError(f"Failed to read PDF file '{filename}': {str(e)}")
 
     if not reader.pages:
         raise ValueError(f"The PDF file '{filename}' contains no pages.")
 
+    # باز کردن با PyMuPDF برای رندر صفحات در صورت اسکن بودن
+    fitz_doc = None
+    if PYMUPDF_AVAILABLE:
+        try:
+            fitz_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        except Exception:
+            fitz_doc = None
+
     pages_data = []
+
     for idx, page in enumerate(reader.pages):
         page_num = idx + 1
+        text = ""
         try:
             text = page.extract_text() or ""
         except Exception:
             text = ""
 
         cleaned_text = " ".join(text.split())
-        if cleaned_text:
+
+        # بررسی آیا صفحه اسکن‌شده است؟ (کمتر از ۳۰ کاراکتر متن قابل استخراج)
+        if len(cleaned_text) < 30:
+            scanned_text = ""
+            # روش ۱: رندر با PyMuPDF
+            if fitz_doc and idx < len(fitz_doc):
+                fitz_page = fitz_doc[idx]
+                pix = fitz_page.get_pixmap(dpi=150)
+                page_img = Image.open(io.BytesIO(pix.tobytes("png")))
+                scanned_text = _transcribe_page_image(page_img, page_num, filename)
+
+            # روش ۲: استخراج عکس داخلی صفحه با pypdf در صورت عدم وجود PyMuPDF
+            elif page.images:
+                try:
+                    first_img = page.images[0]
+                    page_img = Image.open(io.BytesIO(first_img.data))
+                    scanned_text = _transcribe_page_image(page_img, page_num, filename)
+                except Exception:
+                    pass
+
+            if scanned_text:
+                pages_data.append({
+                    "page_number": page_num,
+                    "text": scanned_text,
+                    "is_scanned": True
+                })
+        else:
             pages_data.append({
                 "page_number": page_num,
-                "text": cleaned_text
+                "text": cleaned_text,
+                "is_scanned": False
             })
+
+    if fitz_doc:
+        fitz_doc.close()
 
     return pages_data
 
@@ -45,24 +121,24 @@ def extract_text_from_docx(file_stream, filename: str) -> List[Dict[str, Any]]:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
 
     try:
+        file_stream.seek(0)
         doc = DocxDocument(file_stream)
     except Exception as e:
         raise ValueError(f"Failed to read Word document '{filename}': {str(e)}")
 
     content_blocks = []
 
-    # ۱. استخراج پاراگراف‌ها و تیترها
+    # استخراج پاراگراف‌ها
     for para in doc.paragraphs:
         text = para.text.strip()
         if text:
             content_blocks.append(text)
 
-    # ۲. استخراج جداول (سطر به سطر با تفکیک ستون‌ها)
+    # استخراج جداول
     for table in doc.tables:
         for row in table.rows:
             row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             if row_cells:
-                # حذف مقادیر تکراری سلول‌های ادغام‌شده (merged cells)
                 unique_cells = []
                 for c in row_cells:
                     if not unique_cells or c != unique_cells[-1]:
@@ -73,12 +149,11 @@ def extract_text_from_docx(file_stream, filename: str) -> List[Dict[str, Any]]:
     if not full_text:
         return []
 
-    # برای اسناد ورد کل محتوا به عنوان بخش ۱ منظور می‌شود
-    return [{"page_number": 1, "text": full_text}]
+    return [{"page_number": 1, "text": full_text, "is_scanned": False}]
 
 
 def extract_text_from_image(file_stream, filename: str) -> List[Dict[str, Any]]:
-    """استخراج متن از تصویر با فشرده‌سازی ابعاد و کیفیت جهت مصرف حداقل حجم و پهنای باند."""
+    """استخراج متن، جداول و برچسب‌های موجود در تصاویر (JPG, PNG)."""
     if not file_stream:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
 
@@ -86,42 +161,18 @@ def extract_text_from_image(file_stream, filename: str) -> List[Dict[str, Any]]:
         file_stream.seek(0)
         file_bytes = file_stream.read()
         image = Image.open(io.BytesIO(file_bytes))
-
-        # تبدیل به RGB برای خلاص شدن از کانال آلفا و کاهش حجم
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-
-        # تغییر ابعاد به حداکثر 1280 پیکسل (کاملاً خوانا برای OCR اما بسیار سبک)
-        max_size = 1280
-        if max(image.size) > max_size:
-            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-
-        # فشرده‌سازی در قالب بایت‌های JPEG با کیفیت 75%
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=75, optimize=True)
-        buffer.seek(0)
-        compressed_image = Image.open(buffer)
-
     except Exception as e:
-        raise ValueError(f"Failed to process/compress image '{filename}': {str(e)}")
+        raise ValueError(f"Failed to decode image '{filename}': {str(e)}")
 
-    vision_prompt = (
-        "You are an expert document OCR assistant. "
-        "Extract all readable text, titles, dates, numbers, and tabular data verbatim. "
-        "Do not summarize. Return pure transcribed text."
-    )
-
-    from app.ai.gemini import transcribe_image_with_vision
-    transcribed_text = transcribe_image_with_vision(compressed_image, vision_prompt)
-
-    if not transcribed_text:
+    text = _transcribe_page_image(image, 1, filename)
+    if not text:
         return []
 
-    return [{"page_number": 1, "text": transcribed_text}]
+    return [{"page_number": 1, "text": text, "is_scanned": True}]
 
 
 def load_document_content(file, filename: str) -> List[Dict[str, Any]]:
-    """توزیع‌کننده یکپارچه (Unified Dispatcher) جهت انتخاب پردازشگر مناسب بر اساس پسوند فایل."""
+    """توزیع‌کننده یکپارچه ورود اسناد بر اساس پسوند."""
     ext = os.path.splitext(filename)[1].lower()
 
     if ext == ".pdf":
@@ -131,4 +182,4 @@ def load_document_content(file, filename: str) -> List[Dict[str, Any]]:
     elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
         return extract_text_from_image(file, filename)
     else:
-        raise ValueError(f"Unsupported file format '{ext}'. Supported: PDF, DOCX, JPG, PNG.")
+        raise ValueError(f"Unsupported file format '{ext}'. Supported: PDF, DOCX, JPG, PNG, WEBP.")

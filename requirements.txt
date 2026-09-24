@@ -5,3 +5,6 @@ pypdf
 chromadb
 python-docx
 Pillow
+pandas
+openpyxl
+pymupdf
