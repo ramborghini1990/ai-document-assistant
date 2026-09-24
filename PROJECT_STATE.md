@@ -1,9 +1,9 @@
 # Project State Tracking
 
 ## Current Status
-- **Current Phase:** Phase 16 — Document Format Abstraction & Fault-Tolerant Ingestion (Completed)
-- **Current Task:** Ready for Phase 18 — Schema-Driven Structured Information Extraction
-- **Next Phase:** Phase 18 — Structured Extraction Engine (Vehicles, Fuel, Deadlines/Scadenziario)
+- **Current Phase:** Phase 18 — Schema-Driven Structured Information Extraction
+- **Current Task:** Verification of extraction engine, normalizers, and anti-hallucination guarantees
+- **Next Phase:** Phase 19 — Extraction Review UI (Interactive table display & field validation in Streamlit)
 - **Completed Phases:**
   - Phase 0: Project setup, git repo, venv, requirements, environment configuration
   - Phase 1: Standalone Gemini API integration verified (`gemini-3.6-flash`)
@@ -21,13 +21,10 @@
   - Phase 13: Official MVP Acceptance Report issued
   - Phase 14: Inspection of current architecture and reference ISO 14001 workbook verified
   - Phase 15: Multi-file batch upload and cross-document RAG verified
-  - Phase 16: Multi-format support verified for PDF and DOCX (with table parsing); Fault tolerance verified (failed files do not halt batch ingestion); Image ingestion via Cloud Vision marked for on-prem GPU migration.
+  - Phase 16: Multi-format support verified for PDF and DOCX
+  - Phase 18: Extraction schemas (Scadenziario, Vehicle/Fuel), normalizers, and strict anti-hallucination engine implemented.
 
 ## Architecture Decisions
-- Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite, python-docx, Pillow.
-- Multi-Format Parsing: Unified dispatcher routing `.pdf` to pypdf and `.docx` to python-docx (paragraphs + tables).
-- Fault Tolerance: Individual document failure boundaries prevent batch crashing; dynamic error dismissals in UI.
-- Local Infrastructure Roadmap: Heavy image OCR and scanned PDF workloads scheduled for local execution via on-premises GPU infrastructure to bypass cloud API rate-limits.
-
-## Known Issues / Technical Debt
-- Cloud Vision API on Google Free-Tier enforces a strict 20 RPM limit causing occasional 429/503 errors on image files. Decoupled and scheduled for offline OCR engine migration on enterprise GPU.
+- Schema-Driven Extraction: Dedicated schemas aligned with client ISO 14001 workbook (`SCADENZIARIO`, `CONSUMI_CARBURANTE`).
+- Anti-Hallucination & Provenance: Explicit `EXTRACTED`, `CALCULATED`, and `MISSING` statuses with source page tracking.
+- Normalization: Independent Italian date parsing (`YYYY-MM-DD`) and numeric cleaning (comma-to-dot floats).
