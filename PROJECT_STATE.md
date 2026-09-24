@@ -1,10 +1,9 @@
-
 # Project State Tracking
 
 ## Current Status
-- **Current Phase:** Phase 12 — README & GitHub Polish
-- **Current Task:** Professional portfolio documentation, architecture verification, and clean repository audit
-- **Next Phase:** Phase 13 — Acceptance Report & Final Presentation
+- **Current Phase:** Phase 15 — Multi-File Upload & Batch Processing
+- **Current Task:** Enabling multi-file ingestion, fault-tolerant batch pipeline, and multi-document RAG
+- **Next Phase:** Phase 16 — Document Format Abstraction (DOCX, Images, Multi-format)
 - **Completed Phases:**
   - Phase 0: Project setup, git repo, venv, requirements, environment configuration
   - Phase 1: Standalone Gemini API integration verified (`gemini-3.6-flash`)
@@ -18,11 +17,15 @@
   - Phase 9: SQLite relational schema with UUIDs verified
   - Phase 10: Interactive chat UI with conversation history verified
   - Phase 11: Automated edge-case and error boundary testing verified
+  - Phase 12: Comprehensive portfolio README and clean git hygiene verified
+  - Phase 13: Official MVP Acceptance Report issued
+  - Phase 14: Inspection of current architecture and reference ISO 14001 workbook verified
 
 ## Architecture Decisions
 - Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite.
-- Complete documentation adhering strictly to Acceptance Criterion AC-26.
-- Secrets and runtime artifacts fully isolated from version control.
+- Multi-File Ingestion: Batch processing with isolated error boundaries per file.
+- Multi-Document Retrieval: ChromaDB queries span all ingested document chunks with source preservation.
+- Direct Native Implementation (No LangChain/LlamaIndex).
 
 ## Known Issues / Blockers
 - None.
