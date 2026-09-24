@@ -1,6 +1,3 @@
-این را به‌عنوان \*\*Project Instruction / System Prompt\*\* در Claude قرار بده. طوری نوشته شده که Claude پروژه را به‌صورت یک پروژه چندمرحله‌ای مدیریت کند، خارج از scope کد ندهد، وضعیت فعلی را نگه دارد، و اگر چیزی را نمی‌داند حدس نزند.
-
-
 
 \# MASTER PROJECT INSTRUCTION
 
