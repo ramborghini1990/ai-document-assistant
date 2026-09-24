@@ -1,7 +1,7 @@
 import streamlit as st
 from app.ai.gemini import generate_answer
 from app.ai.prompts import build_rag_prompt
-from app.rag.loader import extract_text_from_pdf
+from app.rag.loader import load_document_content
 from app.rag.chunker import split_text_into_chunks
 from app.rag.embeddings import get_batch_embeddings
 from app.rag.vectorstore import store_chunks_in_chromadb
@@ -40,12 +40,12 @@ def reset_conversation():
     st.session_state.conversation_id = create_conversation(st.session_state.user_id)
 
 
-def process_single_pdf(file) -> int:
-    """خط لوله پردازش مستقل یک فایل PDF همراه با ثبت در SQLite و ChromaDB."""
-    # ۱. استخراج متن از صفحات
-    pages = extract_text_from_pdf(file, file.name)
+def process_single_document(file) -> int:
+    """خط لوله پردازش چندفرمت (PDF, DOCX, Image) با نمایه در SQLite و ChromaDB."""
+    # ۱. استخراج محتوا بر اساس نوع فایل
+    pages = load_document_content(file, file.name)
     if not pages:
-        raise ValueError("No readable text found in document.")
+        raise ValueError("No readable text could be extracted from document.")
 
     # ۲. خردسازی متن
     chunks = split_text_into_chunks(pages, file.name)
@@ -56,25 +56,22 @@ def process_single_pdf(file) -> int:
     chunk_texts = [c["text"] for c in chunks]
     embeddings = get_batch_embeddings(chunk_texts)
 
-    # ۴. ذخیره در پایگاه داده برداری ChromaDB
+    # ۴. ذخیره در ChromaDB
     stored_count = store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
 
-    # ۵. ثبت در پایگاه داده رابطه‌ای SQLite
+    # ۵. ثبت در پایگاه داده SQLite
     doc_id = create_document(st.session_state.user_id, file.name)
 
-    # به‌روزرسانی سشن با اطلاعات فایل پردازش‌شده
     st.session_state.indexed_documents[file.name] = {
         "id": doc_id,
         "chunks": len(chunks),
         "status": "Ready"
     }
 
-    # اگر قبلاً خطایی برای این فایل ثبت شده بود، پاک شود
     if file.name in st.session_state.processing_errors:
         del st.session_state.processing_errors[file.name]
 
     return len(chunks)
-
 
 def render_ui():
     st.set_page_config(
@@ -114,20 +111,29 @@ def render_ui():
     col_ingest, col_chat = st.columns([1, 1], gap="large")
 
     # ستون اول: بارگذاری چندسندی و پایش وضعیت دسته‌ای
+    # ستون اول: بارگذاری چندسندی و پایش وضعیت دسته‌ای
     with col_ingest:
         st.subheader("1. Multi-Document Ingestion")
         uploaded_files = st.file_uploader(
-            "Upload one or more PDF documents:",
-            type=["pdf"],
+            "Upload documents (PDF, DOCX, Images):",
+            type=["pdf", "docx", "jpg", "jpeg", "png"],
             accept_multiple_files=True,
-            help="Select multiple PDF documents to ingest into the unified knowledge base."
+            help="Upload PDF, Word (.docx), or Image files to ingest into the unified knowledge base."
         )
 
         if uploaded_files:
-            # بررسی فایل‌هایی که نیاز به پردازش دارند
+            # پاکسازی خطای فایل‌هایی که کاربر با زدن ضربدر از کادر آپلود حذف کرده است
+            current_filenames = [f.name for f in uploaded_files]
+            st.session_state.processing_errors = {
+                fname: err for fname, err in st.session_state.processing_errors.items()
+                if fname in current_filenames
+            }
+
+            # پردازش فقط برای فایل‌هایی که نه ایندکس شده‌اند و نه خطا خورده‌اند
             files_to_process = [
                 f for f in uploaded_files 
-                if f.name not in st.session_state.indexed_documents
+                if f.name not in st.session_state.indexed_documents 
+                and f.name not in st.session_state.processing_errors
             ]
 
             if files_to_process:
@@ -135,13 +141,16 @@ def render_ui():
                     for f in files_to_process:
                         try:
                             st.write(f"Indexing **{f.name}**...")
-                            chunk_count = process_single_pdf(f)
+                            chunk_count = process_single_document(f)
                             st.write(f"✓ **{f.name}**: successfully indexed ({chunk_count} chunks)")
                         except Exception as e:
                             st.session_state.processing_errors[f.name] = str(e)
                             st.write(f"✗ **{f.name}**: failed ({str(e)})")
 
                     status.update(label="Batch processing complete!", state="complete", expanded=False)
+        else:
+            # اگر کاربر تمام فایل‌ها را پاک کرد، خطاها نیز ریست شوند
+            st.session_state.processing_errors = {}
 
         # نمایش لیست وضعیت اسناد جاری
         if st.session_state.indexed_documents:

@@ -1,9 +1,9 @@
 # Project State Tracking
 
 ## Current Status
-- **Current Phase:** Phase 15 — Multi-File Upload & Batch Processing
-- **Current Task:** Enabling multi-file ingestion, fault-tolerant batch pipeline, and multi-document RAG
-- **Next Phase:** Phase 16 — Document Format Abstraction (DOCX, Images, Multi-format)
+- **Current Phase:** Phase 16 — Document Format Abstraction & Fault-Tolerant Ingestion (Completed)
+- **Current Task:** Ready for Phase 18 — Schema-Driven Structured Information Extraction
+- **Next Phase:** Phase 18 — Structured Extraction Engine (Vehicles, Fuel, Deadlines/Scadenziario)
 - **Completed Phases:**
   - Phase 0: Project setup, git repo, venv, requirements, environment configuration
   - Phase 1: Standalone Gemini API integration verified (`gemini-3.6-flash`)
@@ -20,12 +20,14 @@
   - Phase 12: Comprehensive portfolio README and clean git hygiene verified
   - Phase 13: Official MVP Acceptance Report issued
   - Phase 14: Inspection of current architecture and reference ISO 14001 workbook verified
+  - Phase 15: Multi-file batch upload and cross-document RAG verified
+  - Phase 16: Multi-format support verified for PDF and DOCX (with table parsing); Fault tolerance verified (failed files do not halt batch ingestion); Image ingestion via Cloud Vision marked for on-prem GPU migration.
 
 ## Architecture Decisions
-- Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite.
-- Multi-File Ingestion: Batch processing with isolated error boundaries per file.
-- Multi-Document Retrieval: ChromaDB queries span all ingested document chunks with source preservation.
-- Direct Native Implementation (No LangChain/LlamaIndex).
+- Stack: Python, Streamlit, Google Gemini API, ChromaDB, SQLite, python-docx, Pillow.
+- Multi-Format Parsing: Unified dispatcher routing `.pdf` to pypdf and `.docx` to python-docx (paragraphs + tables).
+- Fault Tolerance: Individual document failure boundaries prevent batch crashing; dynamic error dismissals in UI.
+- Local Infrastructure Roadmap: Heavy image OCR and scanned PDF workloads scheduled for local execution via on-premises GPU infrastructure to bypass cloud API rate-limits.
 
-## Known Issues / Blockers
-- None.
+## Known Issues / Technical Debt
+- Cloud Vision API on Google Free-Tier enforces a strict 20 RPM limit causing occasional 429/503 errors on image files. Decoupled and scheduled for offline OCR engine migration on enterprise GPU.

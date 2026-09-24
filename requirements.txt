@@ -1,5 +1,7 @@
 google-genai
-python-dotenv
 streamlit
+python-dotenv
 pypdf
 chromadb
+python-docx
+Pillow
