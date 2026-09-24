@@ -7,7 +7,7 @@ from PIL import Image
 from app.ai.gemini import transcribe_image_with_vision
 
 try:
-    import fitz  # PyMuPDF
+    import pymupdf
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
@@ -61,7 +61,7 @@ def extract_text_from_pdf(file_stream, filename: str) -> List[Dict[str, Any]]:
     fitz_doc = None
     if PYMUPDF_AVAILABLE:
         try:
-            fitz_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            fitz_doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
         except Exception:
             fitz_doc = None
 

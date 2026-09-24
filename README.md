@@ -1,318 +1,90 @@
-\# 📄 AI Document Assistant (RAG MVP)
 
-
-
-An end-to-end, lightweight Retrieval-Augmented Generation (RAG) assistant built from scratch with Python, Streamlit, Google Gemini API, ChromaDB, and SQLite.
-
-
-
-This project is a functional MVP developed to demonstrate direct implementation of the core components of modern RAG architectures without relying on high-level orchestration abstractions (such as LangChain or LlamaIndex).
-
-
-
-\---
-
-
-
-\## 🏗️ Architecture \& Data Flow
-
-
-
-The application isolates structured conversational data from vector retrieval:
-
-
-
-\[ User Interaction ]
-
-│
-
-▼
-
-\[ Streamlit Web UI ] ── (Store/Retrieve Messages) ──▶ \[ SQLite DB (UUIDv4) ]
-
-│
-
-├──▶ 1. Ingestion Pipeline:
-
-│       PDF ──▶ pypdf (Text + Page Extraction)
-
-│            ──▶ Chunking (1000 chars, 200 overlap + metadata)
-
-│            ──▶ Embeddings (gemini-embedding-001, 3072 dim)
-
-│            ──▶ ChromaDB (Local Persistent Vector Store)
-
-│
-
-└──▶ 2. Retrieval \& Generation Pipeline:
-
-User Query ──▶ Query Embedding
-
-──▶ ChromaDB Cosine Search (top\_k chunks)
-
-──▶ Grounded Prompt Construction
-
-──▶ Gemini API (gemini-3.6-flash)
-
-──▶ Context-Grounded Answer + Source Pages
-
-
-
-
-
-\---
-
-
-
-\## 🚀 Key Features
-
-
-
-\* \*\*Direct Pipeline Implementation:\*\* Clear, modular Python code implementing document extraction, text chunking, embedding generation, vector storage, and prompt engineering without framework bloat.
-
-\* \*\*Strict Anti-Hallucination Guardrails:\*\* Prompt engineering strictly binds Gemini responses to retrieved context chunks, instructing the model to declare insufficient information when data is missing.
-
-\* \*\*Source \& Page Attribution:\*\* Preserves page-level metadata from PDFs across chunking and vector storage to display source evidence to the user.
-
-\* \*\*Dual Database Architecture:\*\*
-
-&#x20; \* \*\*ChromaDB:\*\* Local persistent vector storage for semantic embeddings.
-
-&#x20; \* \*\*SQLite:\*\* Relational schema storing users, documents, conversation sessions, and message history using programmatic UUIDv4 primary keys.
-
-\* \*\*Interactive UI:\*\* Built with Streamlit featuring asynchronous file ingestion, chat containers, session management, and context inspection tools.
-
-
-
-\---
-
-
-
-\## 🛠️ Technology Stack
-
-
-
-| Layer | Component | Details |
-
-| :--- | :--- | :--- |
-
-| \*\*Language\*\* | Python 3.12+ | Core application logic |
-
-| \*\*Frontend\*\* | Streamlit | Web UI \& Session State Management |
-
-| \*\*LLM Provider\*\* | Google Gemini API | `gemini-3.6-flash` via official `google-genai` SDK |
-
-| \*\*Embeddings\*\* | Google Gemini API | `gemini-embedding-001` (3072-dimensional vectors) |
-
-| \*\*Vector DB\*\* | ChromaDB | Local persistent vector store with cosine distance |
-
-| \*\*Relational DB\*\*| SQLite3 | Relational persistence (`users`, `documents`, `conversations`, `messages`) |
-
-| \*\*PDF Extraction\*\*| pypdf | Text extraction with page-level mapping |
-
-| \*\*Identifiers\*\* | UUID (v4) | Standard programmatic primary keys |
-
-
-
-\---
-
-
-
-\## 📁 Repository Structure
-
-
-
-```text
-
-ai-document-assistant/
-
-├── app/
-
-│   ├── ai/
-
-│   │   ├── gemini.py          # Gemini API client \& generation logic
-
-│   │   └── prompts.py         # Grounded RAG prompt template builder
-
-│   ├── database/
-
-│   │   └── database.py        # SQLite schema \& conversation history CRUD
-
-│   ├── rag/
-
-│   │   ├── loader.py          # PDF text extraction with page numbers
-
-│   │   ├── chunker.py         # Windowed text chunking with overlap \& UUIDs
-
-│   │   ├── embeddings.py      # Vector embeddings via gemini-embedding-001
-
-│   │   ├── vectorstore.py     # ChromaDB persistence \& collection indexing
-
-│   │   └── retriever.py       # Semantic vector search \& distance ranking
-
-│   ├── ui/
-
-│   │   └── streamlit\_app.py   # Multi-column interactive web interface
-
-│   └── main.py                # Application entrypoint \& path resolution
-
-├── tests/
-
-│   ├── test\_gemini.py         # Standalone LLM integration check
-
-│   ├── test\_embeddings.py     # Embedding dimensions \& batching test
-
-│   ├── test\_chromadb.py       # Vector indexing \& retrieval verification
-
-│   ├── test\_retriever.py      # Semantic similarity search verification
-
-│   ├── test\_database.py       # SQLite CRUD \& schema integrity test
-
-│   └── test\_edge\_cases.py     # Boundary \& error handling tests
-
-├── .env.example               # Secret template
-
-├── .gitignore                 # Artifact and secret exclusion rules
-
-├── INSTRUCTIONS.md            # Master development rules \& acceptance criteria
-
-├── PROJECT\_STATE.md           # Continuous phase-by-phase status tracker
-
-├── requirements.txt           # Minimal pinned dependencies
-
-└── README.md                  # System documentation
-
-⚙️ Installation \& Setup
-
-1\. Prerequisites
-
-Python 3.10+ installed
-
-
-
-A valid Google Gemini API Key
-
-
-
-2\. Clone and Setup Environment
-
-Bash
-
-git clone \[https://github.com/ramborghini1990/ai-document-assistant.git](https://github.com/ramborghini1990/ai-document-assistant.git)
-
+# Project State Tracking
+
+## Current Status
+- **Current Phase:** Phase 22 — Final Quality Assurance, Documentation & Production Release (Completed)
+- **Status:** All core and advanced milestones fully verified and operational.
+- **Completed Phases:**
+  - **Phase 0 to 12:** Core RAG pipeline, persistent ChromaDB, SQLite storage, conversation memory, edge-case testing, and initial MVP release.
+  - **Phase 13 to 15:** Multi-document batch upload, fault-tolerant ingestion boundaries, and cross-document grounded synthesis.
+  - **Phase 16 & 17:** Multimodal ingestion pipeline:
+    - Digital PDF via `pypdf`.
+    - DOCX tables & paragraphs via `python-docx`.
+    - Standalone image OCR and scanned PDF page rasterization via `pymupdf` and Gemini Vision.
+  - **Phase 18:** Schema-driven extraction engine (`SCADENZIARIO`, `VEHICLE_FUEL`, `GENERAL`) with strict anti-hallucination guarantees and Italian date/number normalizers.
+  - **Phase 19:** Interactive Human-in-the-Loop review UI (`st.data_editor`) for real-time verification and editing.
+  - **Phase 20:** Enterprise Excel export (`.xlsx`) with ISO 14001 olive-green corporate styling, audit summary sheets, and auto-adjusted columns.
+  - **Phase 21:** Formal Word export (`.docx`) with audit metadata, source page traceability, and management sign-off blocks.
+  - **Infrastructure:** Upgraded to Google AI Studio Tier-1 (Pay-as-you-go) with 1,000 RPM capacity.
+
+## Architectural Highlights
+- **Framework-Free RAG:** Direct integration of ChromaDB, SQLite, and Google GenAI SDK without heavy abstractions.
+- **Multimodal & Scanned Doc Intelligence:** Automated fallback from digital text extraction to PyMuPDF image rasterization for scanned pages.
+- **Dual Enterprise Reporting:** Immediate export to structured Excel workbooks for data analytics and signed Word reports for audit archives.
+گام ۳: به‌روزرسانی مستندات فنی و پرتفولیو (README.md)
+فایل README.md را باز کنید:
+
+DOS
+notepad README.md
+کل محتوا را با این سند رسمی و مدیریتی جایگزین و ذخیره کنید:
+
+Markdown
+# AI Document Intelligence & Enterprise Reporting System
+### Production-Grade Multimodal RAG & ISO 14001 Structured Extraction Engine
+
+An enterprise-ready Document Intelligence platform built with Python, Google Gemini, ChromaDB, and SQLite. The system processes complex corporate documentation (digital PDFs, scanned contracts, Word files, and images), provides grounded cross-document Q&A, performs schema-driven compliance extraction with zero hallucination, and generates audit-ready Excel and Word deliverables.
+
+---
+
+## Key Features
+
+1. **Multimodal & Scanned Document Ingestion**
+   - **Unified Ingestion:** Batch upload supporting PDF, DOCX, PNG, JPG, and WEBP.
+   - **Hybrid PDF Parsing:** Automatically extracts digital text via `pypdf`; detects scanned pages (<30 chars) and rasterizes them via `PyMuPDF` for Gemini Vision transcription.
+   - **Fault-Tolerant Processing:** Document-level error isolation ensures invalid files do not break batch indexing.
+
+2. **Grounded Cross-Document RAG**
+   - **Vector Persistence:** ChromaDB embeddings (`gemini-embedding-001`) with cosine similarity ranking.
+   - **Session & History:** Relational tracking of users, sessions, and messages via SQLite.
+   - **Strict Grounding:** Prompts engineered to synthesize responses exclusively from cited document context.
+
+3. **Schema-Driven Extraction & Anti-Hallucination**
+   - **Predefined Schemas:** Aligned with ISO 14001 environmental compliance (`SCADENZIARIO`, `VEHICLE_FUEL`, and general administrative documents).
+   - **Italian Locale Normalizers:** Normalizes dates (`DD/MM/YYYY` to `YYYY-MM-DD`) and numbers (comma-to-dot decimals, thousand separators).
+   - **Derived Fields:** Automatic deterministic calculations (e.g., fuel consumption $L/100km$) with explicit `CALCULATED` status tags.
+   - **Source Traceability:** Every extracted record references its exact source page.
+
+4. **Human-in-the-Loop Review & Export**
+   - **Interactive Grid:** Review and edit extracted rows directly inside Streamlit using `st.data_editor`.
+   - **Corporate Excel Deliverables (`.xlsx`):** Multi-sheet workbooks with ISO olive-green styling, metadata summary sheets, auto-fit columns, and frozen headers via `openpyxl`.
+   - **Formal Audit Reports (`.docx`):** Executive Word reports with document provenance, formatted tables, and management sign-off blocks for RSGA and Technical Directors.
+
+---
+
+## Tech Stack
+
+- **Core:** Python 3.12, Streamlit
+- **AI Models:** Google Gemini 3.6 Flash (Vision & Language), Gemini Embedding 001
+- **Storage:** ChromaDB (Vector Store), SQLite (Relational Store)
+- **Document Parsers:** `pymupdf` (Fitz), `pypdf`, `python-docx`, `Pillow`
+- **Reporting Engines:** `openpyxl`, `python-docx`, `pandas`
+
+---
+
+## Quickstart
+
+### 1. Clone & Set Up Environment
+```bash
+git clone [https://github.com/YOUR_USERNAME/ai-document-assistant.git](https://github.com/YOUR_USERNAME/ai-document-assistant.git)
 cd ai-document-assistant
-
-
-
-\# Create virtual environment
-
 python -m venv venv
-
-
-
-\# Activate virtual environment
-
-\# Windows (CMD):
-
-venv\\Scripts\\activate
-
-\# Linux / macOS:
-
-source venv/bin/activate
-
-
-
-\# Install dependencies
-
-pip install --upgrade pip
-
+venv\Scripts\activate
 pip install -r requirements.txt
-
-3\. Configure API Credentials
-
-Create a .env file in the root directory based on .env.example:
-
-
-
-Bash
-
-cp .env.example .env
-
-Open .env and insert your Gemini API key:
-
-
+2. Configure Environment Variables
+Create a .env file in the root directory:
 
 Code snippet
-
-GEMINI\_API\_KEY=your\_actual\_gemini\_api\_key\_here
-
-🖥️ Running the Application
-
-Launch the Streamlit web application:
-
-
-
+GEMINI_API_KEYS=your_api_key_here
+3. Run Application
 Bash
-
 streamlit run app/main.py
-
-Open http://localhost:8501 in your browser.
-
-
-
-Upload a PDF: In the left column, upload a text-based PDF. The system will extract pages, split chunks, compute embeddings, and index the vectors.
-
-
-
-Chat with Document: In the right column, enter questions regarding the document.
-
-
-
-Inspect Context: Expand the evidence inspector below any answer to examine the exact retrieved passages, page numbers, and cosine distance scores.
-
-
-
-🧪 Running Automated Tests
-
-Run the standalone verification suites:
-
-
-
-Bash
-
-python test\_gemini.py
-
-python test\_embeddings.py
-
-python test\_chromadb.py
-
-python test\_retriever.py
-
-python test\_database.py
-
-python test\_edge\_cases.py
-
-📌 Known Limitations \& Future Improvements (Version 2)
-
-Current MVP Scope: Single-user session isolation, synchronous batch ingestion, and text-based PDF extraction.
-
-
-
-Planned Improvements:
-
-
-
-Support for scanned PDFs via OCR integration.
-
-
-
-Multi-document simultaneous querying and cross-document referencing.
-
-
-
-Hybrid search (BM25 lexical + dense vector embeddings) and re-ranking models.
-
-
-
-Containerization with Docker and deployment pipelines.
-

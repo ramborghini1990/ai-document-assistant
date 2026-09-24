@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 from app.ai.gemini import generate_answer
+from datetime import datetime
+from app.reporting.excel_exporter import create_styled_excel_report
+from app.reporting.word_exporter import create_styled_word_report
 from app.ai.prompts import build_rag_prompt
 from app.rag.loader import load_document_content
 from app.rag.chunker import split_text_into_chunks
@@ -255,7 +258,7 @@ def render_ui():
                         except Exception as e:
                             st.error(f"Extraction failed: {str(e)}")
 
-                # نمایش جدول بازبینی و امکان ویرایش فیلدها توسط کاربر
+		# نمایش جدول بازبینی و امکان ویرایش فیلدها توسط کاربر
                 if selected_schema in st.session_state.extracted_data:
                     current_res = st.session_state.extracted_data[selected_schema]
                     records = current_res.get("records", [])
@@ -277,5 +280,38 @@ def render_ui():
                         )
 
                         st.caption(f"✓ Total Verified Rows: `{len(edited_df)}` | Source Document: `{target_doc}`")
+
+                       # --- بخش خروجی رسمی (Excel و Word) ---
+                        st.divider()
+                        st.subheader("📥 Export Audit & Compliance Deliverables")
+                        st.caption("Generate formal ISO 14001 deliverables for data analysis (Excel) and management sign-off (Word).")
+
+                        col_dl_excel, col_dl_word = st.columns(2)
+
+                        with col_dl_excel:
+                            excel_bytes = create_styled_excel_report(
+                                extracted_data_by_schema=st.session_state.extracted_data,
+                                source_documents=list(st.session_state.indexed_documents.keys())
+                            )
+                            st.download_button(
+                                label=f"📊 Download Business Excel ({selected_schema.upper()})",
+                                data=excel_bytes,
+                                file_name=f"Report_ISO14001_{selected_schema}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+
+                        with col_dl_word:
+                            word_bytes = create_styled_word_report(
+                                extracted_data_by_schema=st.session_state.extracted_data,
+                                source_documents=list(st.session_state.indexed_documents.keys())
+                            )
+                            st.download_button(
+                                label=f"📄 Download Formal Word Report (.docx)",
+                                data=word_bytes,
+                                file_name=f"Audit_Report_ISO14001_{datetime.now().strftime('%Y%m%d')}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True
+                            )
                     else:
                         st.warning("No records matching this schema were found in the selected document(s).")
