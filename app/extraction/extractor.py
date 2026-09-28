@@ -1,151 +1,143 @@
 import json
-from typing import List, Dict, Any, Optional
-from app.ai.gemini import generate_structured_json
+from typing import Dict, Any, List
 from app.extraction.schemas import AVAILABLE_SCHEMAS
+from app.ai.gemini import generate_structured_json
 from app.extraction.normalizer import normalize_date, normalize_number, normalize_plate
 
-
-EXTRACTION_SYSTEM_PROMPT = """
-You are an expert enterprise document intelligence and structured data extraction engine.
-Your task is to extract structured entities from the provided document text according to the requested schema.
-
-STRICT ANTI-HALLUCINATION RULES:
-1. ONLY extract information that is explicitly stated in the document.
-2. If a field is NOT mentioned in the text, you MUST output null for that field. NEVER guess or invent dates, numbers, or names.
-3. For each extracted record, indicate the source page number where the information was found.
-4. For each field, assign an extraction_status:
-   - "EXTRACTED": The value is directly stated in the text.
-   - "MISSING": The value does not exist in the document.
-   - "UNCERTAIN": The text is ambiguous or partially readable.
-5. Return ONLY a valid JSON object matching the requested schema. No conversational preamble.
-"""
+EXTRACTION_SYSTEM_PROMPT = (
+    "You are a certified ISO 14001 Environmental Management System (SGA) and legal compliance data extraction auditor. "
+    "Your objective is to extract structured entities from organizational documents with absolute fidelity to the source text. "
+    "Adhere to the Zero Hallucination protocol: never invent expiries, amounts, or roles. "
+    "If a field is not present in the document text, return null."
+)
 
 
-def extract_structured_data(
-    pages_data: List[Dict[str, Any]], 
-    schema_name: str = "scadenziario"
-) -> Dict[str, Any]:
-    """
-    استخراج ساختاریافته داده‌ها از صفحات سند بر اساس اسکیمای مشخص همراه با نرمال‌سازی و مهار توهم.
-    """
-    if schema_name not in AVAILABLE_SCHEMAS:
-        raise ValueError(f"Unknown schema '{schema_name}'. Available: {list(AVAILABLE_SCHEMAS.keys())}")
+def _build_extraction_prompt(schema_name: str, schema_def: Dict[str, Any], pages: List[Dict[str, Any]]) -> str:
+    fields_spec = schema_def["fields"]
+    required_fields = schema_def.get("required", [])
 
-    schema = AVAILABLE_SCHEMAS[schema_name]
-
-    # آماده‌سازی کانتکست با درج شماره صفحه
-    full_context_blocks = []
-    for p in pages_data:
+    context_blocks = []
+    for p in pages:
         p_num = p.get("page_number", 1)
-        p_text = p.get("text", "").strip()
-        if p_text:
-            full_context_blocks.append(f"--- PAGE {p_num} ---\n{p_text}")
+        p_txt = p.get("text", "").strip()
+        if p_txt:
+            context_blocks.append(f"--- [PAGINA {p_num}] ---\n{p_txt}")
 
-    full_context = "\n\n".join(full_context_blocks)
-    if not full_context.strip():
-        return {"schema": schema_name, "records": [], "warnings": ["Document has no readable text."]}
+    corpus = "\n\n".join(context_blocks)
 
     prompt = f"""
-SCHEMA REQUESTED: {schema['name']} - {schema['description']}
-TARGET FIELDS: {json.dumps(schema['fields'])}
+TARGET EXTRACTION SCHEMA: '{schema_name.upper()}'
+DESCRIPTION: {schema_def['description']}
 
-DOCUMENT CONTENT:
-{full_context}
+FIELDS TO EXTRACT:
+{json.dumps(fields_spec, indent=2)}
 
-INSTRUCTIONS:
-Extract all instances/rows matching the target fields.
-Return a JSON object in this exact format:
+MANDATORY RULES:
+1. Scan the document corpus and identify every valid record matching this schema.
+2. For each identified record, extract the exact textual value as found in the text into 'raw_value'.
+3. Assign the exact 'source_page' (integer) where this record was located.
+4. If a field is not present, set 'raw_value' to null.
+5. Return a valid JSON object matching the exact specification below.
+
+JSON OUTPUT STRUCTURE:
 {{
+  "schema": "{schema_name}",
+  "total_records": <integer>,
   "records": [
     {{
-      "source_page": 1,
+      "source_page": <integer>,
       "fields": {{
         "<field_name>": {{
-          "raw_value": "string or null",
-          "status": "EXTRACTED" | "MISSING" | "UNCERTAIN",
-          "confidence": 0.95
+          "raw_value": <string or null>
         }}
       }}
     }}
   ]
 }}
-"""
 
+DOCUMENT CONTEXT:
+{corpus}
+"""
+    return prompt.strip()
+
+
+def extract_structured_data(pages: List[Dict[str, Any]], schema_name: str = "scadenziario") -> Dict[str, Any]:
+    if schema_name not in AVAILABLE_SCHEMAS:
+        raise ValueError(f"Unknown schema '{schema_name}'. Available: {list(AVAILABLE_SCHEMAS.keys())}")
+
+    if not pages:
+        return {"schema": schema_name, "total_records": 0, "records": []}
+
+    schema_def = AVAILABLE_SCHEMAS[schema_name]
+    fields_spec = schema_def["fields"]
+
+    prompt = _build_extraction_prompt(schema_name, schema_def, pages)
     raw_json_str = generate_structured_json(prompt, system_instruction=EXTRACTION_SYSTEM_PROMPT)
 
     try:
-        parsed_data = json.loads(raw_json_str)
-    except json.JSONDecodeError:
-        # پاکسازی مارک‌داون احتمالی در خروجی
-        cleaned_str = raw_json_str.replace("```json", "").replace("```", "").strip()
-        try:
-            parsed_data = json.loads(cleaned_str)
-        except Exception as e:
-            return {
-                "schema": schema_name, 
-                "records": [], 
-                "warnings": [f"Failed to parse extraction JSON response: {str(e)}"],
-                "raw_response": raw_json_str
-            }
+        data = json.loads(raw_json_str)
+    except Exception as e:
+        raise ValueError(f"Failed to parse model JSON extraction output: {str(e)}")
 
-    raw_records = parsed_data.get("records", [])
-    cleaned_records = []
+    records = data.get("records", [])
 
-    # پردازش، نرمال‌سازی و محاسبه فیلدهای مشتق‌شده
-    for rec in raw_records:
-        src_page = rec.get("source_page", 1)
-        fields_dict = rec.get("fields", {})
+    # شناسایی پویای فیلدهای عددی و تاریخی جهت نرمال‌سازی
+    date_field_names = [f for f in fields_spec if any(k in f for k in ["data", "scadenza", "emissione", "rinnovo", "rilascio"])]
+    number_field_names = [f for f in fields_spec if any(k in f for k in ["litri", "chilometri", "km", "ore", "spesa", "consumo", "anni", "totale"])]
 
-        processed_fields = {}
-        for fname in schema["fields"]:
-            fdata = fields_dict.get(fname, {})
-            if not isinstance(fdata, dict):
-                fdata = {"raw_value": str(fdata) if fdata else None, "status": "EXTRACTED" if fdata else "MISSING", "confidence": 0.8}
+    for rec in records:
+        f_map = rec.get("fields", {})
 
-            val = fdata.get("raw_value")
-            status = fdata.get("status", "EXTRACTED" if val else "MISSING")
-            conf = fdata.get("confidence", 0.9 if val else 0.0)
+        for fname in fields_spec:
+            if fname not in f_map:
+                f_map[fname] = {"raw_value": None, "normalized_value": None, "status": "MISSING"}
+                continue
 
-            # نرمال‌سازی فیلدهای شناخته‌شده
-            norm_val = val
-            if val:
-                if any(k in fname for k in ["data", "scadenza", "periodo"]):
-                    norm_val = normalize_date(val)
-                elif any(k in fname for k in ["litri", "chilometri", "consumo"]):
-                    norm_val = normalize_number(val)
-                elif "targa" in fname:
-                    norm_val = normalize_plate(val)
+            item = f_map[fname]
+            raw_v = item.get("raw_value")
 
-            processed_fields[fname] = {
-                "raw_value": val,
-                "normalized_value": norm_val,
-                "status": status,
-                "confidence": conf
-            }
+            if raw_v is None or str(raw_v).strip().lower() in ["null", "none", "", "-", "n/a"]:
+                item["raw_value"] = None
+                item["normalized_value"] = None
+                item["status"] = "MISSING"
+                continue
 
-        # قانون ویژه فاز ۱۸ (محاسبه خودکار مصرف سوخت L/100km در صورت وجود لیتر و کیلومتر)
+            item["status"] = "EXTRACTED"
+
+            # نرمال‌سازی تاریخ‌ها
+            if fname in date_field_names:
+                norm_d = normalize_date(str(raw_v))
+                item["normalized_value"] = norm_d
+
+            # نرمال‌سازی اعداد
+            elif fname in number_field_names:
+                norm_n = normalize_number(str(raw_v))
+                item["normalized_value"] = norm_n
+
+            # نرمال‌سازی پلاک خودرو
+            elif fname == "targa":
+                norm_p = normalize_plate(str(raw_v))
+                item["normalized_value"] = norm_p
+            else:
+                item["normalized_value"] = str(raw_v).strip()
+
+        # محاسبه قطعی نرخ مصرف سوخت در صورت وجود
         if schema_name == "vehicle_fuel":
-            liters = processed_fields.get("litri", {}).get("normalized_value")
-            kms = processed_fields.get("chilometri", {}).get("normalized_value")
-            consumo_field = processed_fields.get("consumo_l_100km", {})
+            litri_data = f_map.get("litri", {})
+            km_data = f_map.get("chilometri", {})
+            l_val = litri_data.get("normalized_value")
+            km_val = km_data.get("normalized_value")
 
-            if liters and kms and (kms > 0) and not consumo_field.get("raw_value"):
-                calc_val = round((liters / kms) * 100, 2)
-                processed_fields["consumo_l_100km"] = {
-                    "raw_value": f"{calc_val} (calculated)",
+            if l_val is not None and km_val is not None and km_val > 0:
+                calc_val = round((l_val / km_val) * 100.0, 2)
+                f_map["consumo_l_100km"] = {
+                    "raw_value": f"{calc_val} L/100km",
                     "normalized_value": calc_val,
-                    "status": "CALCULATED",
-                    "confidence": 1.0
+                    "status": "CALCULATED"
                 }
-
-        cleaned_records.append({
-            "source_page": src_page,
-            "fields": processed_fields
-        })
 
     return {
         "schema": schema_name,
-        "total_records": len(cleaned_records),
-        "records": cleaned_records,
-        "warnings": []
+        "total_records": len(records),
+        "records": records
     }

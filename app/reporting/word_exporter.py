@@ -12,7 +12,6 @@ from app.reporting.excel_exporter import COLUMN_LABELS
 
 
 def _set_cell_shading(cell, color_hex: str):
-    """اعمال رنگ پس‌زمینه بر روی سلول جدول Word."""
     shading_xml = f'<w:shd {nsdecls("w")} w:fill="{color_hex}"/>'
     cell._tc.get_or_add_tcPr().append(parse_xml(shading_xml))
 
@@ -20,10 +19,11 @@ def _set_cell_shading(cell, color_hex: str):
 def create_styled_word_report(
     extracted_data_by_schema: Dict[str, Any],
     source_documents: List[str],
-    company_profile: Optional[Dict[str, Any]] = None
+    company_profile: Optional[Dict[str, Any]] = None,
+    selected_fields_by_schema: Optional[Dict[str, List[str]]] = None
 ) -> bytes:
     """
-    تولید سند رسمی و مدیریتی Word (.docx) با متادیتا و کادرهای امضای داینامیک سازمانی.
+    تولید سند رسمی و مدیریتی Word (.docx) با امکان فیلتر داینامیک ستون‌های جداول (Phase 26).
     """
     doc = Document()
 
@@ -40,12 +40,9 @@ def create_styled_word_report(
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.8)
 
-    COLOR_PRIMARY = RGBColor(30, 77, 43)    # سبز زیتونی ISO 14001
+    COLOR_PRIMARY = RGBColor(30, 77, 43)
     COLOR_SECONDARY = RGBColor(85, 85, 85)
 
-    # -------------------------------------------------------------
-    # سربرگ و عنوان گزارش
-    # -------------------------------------------------------------
     title_p = doc.add_paragraph()
     title_p.paragraph_format.space_before = Pt(0)
     title_p.paragraph_format.space_after = Pt(2)
@@ -57,7 +54,7 @@ def create_styled_word_report(
 
     sub_p = doc.add_paragraph()
     sub_p.paragraph_format.space_after = Pt(4)
-    run_sub = sub_p.add_run(f"Sistema di Gestione Ambientale (UNI EN ISO 14001:2026)")
+    run_sub = sub_p.add_run("Sistema di Gestione Ambientale (UNI EN ISO 14001:2026)")
     run_sub.font.name = "Segoe UI"
     run_sub.font.size = Pt(10.5)
     run_sub.font.bold = True
@@ -75,15 +72,12 @@ def create_styled_word_report(
         run_cinfo.font.italic = True
         run_cinfo.font.color.rgb = COLOR_SECONDARY
 
-    # خط تفکیک افقی
     p_div = doc.add_paragraph()
     p_div.paragraph_format.space_after = Pt(12)
     run_div = p_div.add_run("―" * 58)
     run_div.font.color.rgb = RGBColor(200, 200, 200)
 
-    # -------------------------------------------------------------
-    # بخش ۱: متادیتای ممیزی و اسناد مبدأ
-    # -------------------------------------------------------------
+    # بخش ۱: متادیتای ممیزی
     h1 = doc.add_heading(level=1)
     run_h1 = h1.add_run("1. Informazioni Generali e Documenti Analizzati")
     run_h1.font.name = "Segoe UI"
@@ -105,9 +99,7 @@ def create_styled_word_report(
 
     doc.add_paragraph().paragraph_format.space_after = Pt(6)
 
-    # -------------------------------------------------------------
     # بخش ۲: جداول استخراج‌شده به تفکیک اسکیما
-    # -------------------------------------------------------------
     h2 = doc.add_heading(level=1)
     run_h2 = h2.add_run("2. Tabelle di Dettaglio per Schema")
     run_h2.font.name = "Segoe UI"
@@ -130,6 +122,14 @@ def create_styled_word_report(
             continue
 
         sample_fields = list(records[0].get("fields", {}).keys())
+        
+        # اعمال فیلتر ستون‌های انتخابی کاربر
+        if selected_fields_by_schema and schema_name in selected_fields_by_schema:
+            user_fields = selected_fields_by_schema[schema_name]
+            filtered = [f for f in sample_fields if f in user_fields]
+            if filtered:
+                sample_fields = filtered
+
         headers = ["Pagina Fonte"] + [COLUMN_LABELS.get(f, f.replace("_", " ").title()) for f in sample_fields] + ["Stato Estrazione"]
 
         table = doc.add_table(rows=1, cols=len(headers))
@@ -180,9 +180,7 @@ def create_styled_word_report(
 
         doc.add_paragraph().paragraph_format.space_after = Pt(10)
 
-    # -------------------------------------------------------------
-    # بخش ۳: کادر تأیید و امضای نهایی (داینامیک بر اساس نام مسئولان)
-    # -------------------------------------------------------------
+    # بخش ۳: کادر تأیید و امضای نهایی
     h3 = doc.add_heading(level=1)
     run_h3 = h3.add_run("3. Approvazione e Visto del Responsabile")
     run_h3.font.name = "Segoe UI"

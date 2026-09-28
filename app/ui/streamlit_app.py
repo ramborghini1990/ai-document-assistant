@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from app.ai.gemini import generate_answer
+from app.reporting.excel_exporter import create_styled_excel_report, COLUMN_LABELS
+from app.reporting.word_exporter import create_styled_word_report
 from app.ai.prompts import build_rag_prompt
 from app.rag.loader import load_document_content
 from app.rag.chunker import split_text_into_chunks
@@ -302,10 +304,29 @@ def render_ui():
 
                         st.caption(f"✓ Total Verified Rows: `{len(edited_df)}` | Source Document: `{target_doc}`")
 
-                        # --- خروجی‌های رسمی با مشخصات داینامیک شرکت ---
+                        # --- بخش خروجی‌های رسمی با انتخاب داینامیک فیلدها (Phase 26) ---
                         st.divider()
                         st.subheader("📥 Export Audit & Compliance Deliverables")
                         st.caption(f"Document deliverables configured for: **{st.session_state.company_profile.get('company_name')}**")
+
+                        # انتخاب داینامیک ستون‌ها توسط کاربر
+                        all_schema_fields = list(records[0].get("fields", {}).keys())
+                        field_labels_map = {f: COLUMN_LABELS.get(f, f.replace("_", " ").title()) for f in all_schema_fields}
+                        label_to_key = {v: k for k, v in field_labels_map.items()}
+
+                        selected_labels = st.multiselect(
+                            "📋 Seleziona le colonne da includere nei report (Excel & Word):",
+                            options=list(field_labels_map.values()),
+                            default=list(field_labels_map.values()),
+                            key=f"fields_selector_{selected_schema}",
+                            help="Deseleziona i campi non rilevanti per personalizzare il report finale."
+                        )
+
+                        chosen_fields = [label_to_key[lbl] for lbl in selected_labels if lbl in label_to_key]
+                        if not chosen_fields:
+                            chosen_fields = all_schema_fields
+
+                        selected_fields_map = {selected_schema: chosen_fields}
 
                         col_dl_excel, col_dl_word = st.columns(2)
 
@@ -313,7 +334,8 @@ def render_ui():
                             excel_bytes = create_styled_excel_report(
                                 extracted_data_by_schema=st.session_state.extracted_data,
                                 source_documents=list(st.session_state.indexed_documents.keys()),
-                                company_profile=st.session_state.company_profile
+                                company_profile=st.session_state.company_profile,
+                                selected_fields_by_schema=selected_fields_map
                             )
                             st.download_button(
                                 label=f"📊 Download Business Excel ({selected_schema.upper()})",
@@ -327,7 +349,8 @@ def render_ui():
                             word_bytes = create_styled_word_report(
                                 extracted_data_by_schema=st.session_state.extracted_data,
                                 source_documents=list(st.session_state.indexed_documents.keys()),
-                                company_profile=st.session_state.company_profile
+                                company_profile=st.session_state.company_profile,
+                                selected_fields_by_schema=selected_fields_map
                             )
                             st.download_button(
                                 label=f"📄 Download Formal Word Report (.docx)",

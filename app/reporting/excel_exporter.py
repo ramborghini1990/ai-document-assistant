@@ -25,13 +25,46 @@ COLUMN_LABELS = {
     "litri": "Litri Carburante",
     "chilometri": "Km Percorsi",
     "consumo_l_100km": "Consumo (L/100km)",
+
+    # Utility Consumption
+    "tipo_utenza": "Tipo Utenza",
+    "fornitore": "Fornitore / Gestore",
+    "codice_pod_pdr": "Codice POD / PDR / Matricola",
+    "periodo_riferimento": "Periodo Fatturato",
+    "consumo_totale": "Consumo Totale",
+    "unita_misura": "Unità Misura",
+    "ripartizione_fasce": "Ripartizione Fasce (F1/F2/F3)",
+    "totale_spesa_eur": "Importo Totale Spesa (€)",
+
+    # Personnel Training
+    "nominativo_dipendente": "Dipendente / Collaboratore",
+    "codice_fiscale": "Codice Fiscale",
+    "corso_descrizione": "Titolo Corso / Abilitazione",
+    "riferimento_normativo": "Riferimento Normativo",
+    "numero_protocollo": "N. Protocollo Attestato",
+    "ente_formatore": "Ente Formatore / CFPT",
+    "data_emissione": "Data Attestato",
+    "data_scadenza_rinnovo": "Scadenza Aggiornamento",
+    "frequenza_anni": "Frequenza (Anni)",
+    "ore_formazione": "Durata (Ore)",
+    "stato_validita": "Validità",
+
+    # Regulatory Authorization
+    "numero_atto_protocollo": "N. Atto / Protocollo",
+    "numero_iscrizione": "N. Iscrizione Albo / Registro",
+    "ente_rilascio": "Ente Rilascio",
+    "data_rilascio": "Data Rilascio",
+    "data_scadenza": "Data Scadenza Atto",
+    "attivita_autorizzate": "Attività e Categorie Autorizzate",
+    "mezzi_autorizzati": "Mezzi e Targhe Autorizzati",
+    "elenco_codici_eer": "Codici EER / Rifiuti Ammessi",
+    "responsabili_tecnici_note": "Responsabile Tecnico / Variazioni",
+    "prescrizioni_rilevanti": "Prescrizioni / Condizioni Subordinanti",
     
     # General
     "titolo_documento": "Titolo Documento",
     "ente_emittente": "Ente Emittente",
-    "numero_protocollo": "Numero Protocollo",
     "data_emissione": "Data Emissione",
-    "data_scadenza": "Data Scadenza",
     "oggetto_sintesi": "Oggetto Sintesi",
     
     # Metadata
@@ -43,10 +76,11 @@ COLUMN_LABELS = {
 def create_styled_excel_report(
     extracted_data_by_schema: Dict[str, Any],
     source_documents: List[str],
-    company_profile: Optional[Dict[str, Any]] = None
+    company_profile: Optional[Dict[str, Any]] = None,
+    selected_fields_by_schema: Optional[Dict[str, List[str]]] = None
 ) -> bytes:
     """
-    تولید فایل اکسل تجاری و چندشیت با تزریق داینامیک مشخصات شرکت و استاندارد ISO 14001.
+    تولید فایل اکسل تجاری با امکان فیلتر دلخواه ستون‌ها توسط کاربر (Phase 26).
     """
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -56,7 +90,7 @@ def create_styled_excel_report(
     vat_number = comp.get("vat_number", "")
     address = comp.get("address", "")
 
-    header_fill = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")  # سبز زیتونی ISO
+    header_fill = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
     header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
     data_font = Font(name="Segoe UI", size=10)
     meta_font = Font(name="Segoe UI", size=10, italic=True, color="555555")
@@ -69,13 +103,10 @@ def create_styled_excel_report(
         bottom=Side(style="thin", color="CCCCCC")
     )
 
-    # -------------------------------------------------------------
-    # شیت ۱: خلاصه مدیریتی (Riepilogo / Summary)
-    # -------------------------------------------------------------
+    # شیت ۱: خلاصه مدیریتی
     ws_summary = wb.create_sheet(title="RIEPILOGO_GENERALE")
     ws_summary.views.sheetView[0].showGridLines = True
 
-    # مشخصات سازمان در سربرگ
     ws_summary["A1"] = f"REPORT DOCUMENT INTELLIGENCE & COMPLIANCE — {comp_name.upper()}"
     ws_summary["A1"].font = Font(name="Segoe UI", size=13, bold=True, color="1E4D2B")
     
@@ -88,7 +119,6 @@ def create_styled_excel_report(
     ws_summary["A3"] = f"Generato il: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     ws_summary["A3"].font = meta_font
 
-    # فهرست اسناد مبدأ
     ws_summary["A5"] = "Documenti Sorgente Inclusi:"
     ws_summary["A5"].font = Font(name="Segoe UI", size=11, bold=True)
     
@@ -119,9 +149,7 @@ def create_styled_excel_report(
         ws_summary.cell(row=row_idx, column=4, value=schema_name.upper()).font = data_font
         row_idx += 1
 
-    # -------------------------------------------------------------
-    # شیت‌های داده‌های تخصصی (Data Sheets)
-    # -------------------------------------------------------------
+    # شیت‌های داده‌های تخصصی با فیلتر ستون‌ها
     for schema_name, data in extracted_data_by_schema.items():
         sheet_title = schema_name.upper()[:31]
         ws = wb.create_sheet(title=sheet_title)
@@ -134,6 +162,14 @@ def create_styled_excel_report(
             continue
 
         sample_fields = list(records[0].get("fields", {}).keys())
+        
+        # اعمال فیلتر ستون‌های انتخابی کاربر
+        if selected_fields_by_schema and schema_name in selected_fields_by_schema:
+            user_fields = selected_fields_by_schema[schema_name]
+            filtered = [f for f in sample_fields if f in user_fields]
+            if filtered:
+                sample_fields = filtered
+
         headers = ["Pagina Fonte"] + [COLUMN_LABELS.get(f, f.replace("_", " ").title()) for f in sample_fields] + ["Stato Estrazione"]
 
         for col_i, h_name in enumerate(headers, start=1):
@@ -176,7 +212,6 @@ def create_styled_excel_report(
             st_cell.alignment = Alignment(horizontal="center")
             st_cell.border = thin_border
 
-    # تنظیم خودکار پهنای ستون‌ها
     for ws_item in wb.worksheets:
         for col in ws_item.columns:
             max_len = 0
