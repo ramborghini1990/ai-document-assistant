@@ -1,125 +1,177 @@
 import sqlite3
-import os
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-# مسیر فایل دیتابیس در ریشه پروژه
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "app_database.db")
+DB_PATH = "assistant.db"
 
 
-def get_connection() -> sqlite3.Connection:
-    """ایجاد اتصال به پایگاه داده و فعال‌سازی کلیدهای خارجی."""
+def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
 
 def init_db():
-    """ایجاد جداول ساختاریافته در صورت عدم وجود."""
-    with get_connection() as conn:
-        cursor = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-        # جدول کاربران
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS conversations (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        );
+    """)
+
+    # جدول پروفایل سازمانی (فاز ۲۳)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS company_profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            company_name TEXT NOT NULL,
+            vat_number TEXT,
+            address TEXT,
+            rsga_name TEXT,
+            technical_director TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+
+    # درج مقادیر پیش‌فرض در صورت خالی بودن جدول
+    cursor.execute("SELECT COUNT(*) FROM company_profile WHERE id = 1;")
+    if cursor.fetchone()[0] == 0:
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL
+            INSERT INTO company_profile (id, company_name, vat_number, address, rsga_name, technical_director)
+            VALUES (
+                1,
+                'EFFE.EMME S.r.l.',
+                'IT 03412580048',
+                'Via dell''Artigianato 12, Cuneo (CN)',
+                'Laura Mellano / RSGA',
+                'Ermes Frossasco / Direzione Tecnica'
             );
         """)
 
-        # جدول اسناد بارگذاری‌شده
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS documents (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                filename TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-        """)
-
-        # جدول جلسات گفتگو (Sessions)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                document_id TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE SET NULL
-            );
-        """)
-
-        # جدول پیام‌ها و تاریخچه گفتگو
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL,
-                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
-            );
-        """)
-        conn.commit()
+    conn.commit()
+    conn.close()
 
 
-# توابع کمکی کار با داده‌ها (CRUD)
+def get_company_profile() -> Dict[str, Any]:
+    """دریافت آخرین اطلاعات پروفایل شرکت از دیتابیس."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT company_name, vat_number, address, rsga_name, technical_director, updated_at FROM company_profile WHERE id = 1;")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "company_name": "EFFE.EMME S.r.l.",
+        "vat_number": "IT 03412580048",
+        "address": "Via dell'Artigianato 12, Cuneo (CN)",
+        "rsga_name": "Laura Mellano / RSGA",
+        "technical_director": "Ermes Frossasco / Direzione Tecnica",
+        "updated_at": datetime.now().isoformat()
+    }
+
+
+def update_company_profile(
+    company_name: str,
+    vat_number: str = "",
+    address: str = "",
+    rsga_name: str = "",
+    technical_director: str = ""
+) -> None:
+    """به‌روزرسانی پایدار مشخصات شرکت در دیتابیس."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE company_profile
+        SET company_name = ?,
+            vat_number = ?,
+            address = ?,
+            rsga_name = ?,
+            technical_director = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1;
+    """, (company_name.strip(), vat_number.strip(), address.strip(), rsga_name.strip(), technical_director.strip()))
+    conn.commit()
+    conn.close()
+
 
 def create_user() -> str:
-    """ایجاد کاربر جدید با شناسه UUID."""
     user_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    with get_connection() as conn:
-        conn.execute("INSERT INTO users (id, created_at) VALUES (?, ?);", (user_id, now))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO users (id) VALUES (?);", (user_id,))
+    conn.commit()
+    conn.close()
     return user_id
 
 
 def create_document(user_id: str, filename: str) -> str:
-    """ثبت سند برای کاربر مشخص."""
     doc_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO documents (id, user_id, filename, created_at) VALUES (?, ?, ?, ?);",
-            (doc_id, user_id, filename, now)
-        )
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO documents (id, user_id, filename) VALUES (?, ?, ?);", (doc_id, user_id, filename))
+    conn.commit()
+    conn.close()
     return doc_id
 
 
-def create_conversation(user_id: str, document_id: Optional[str] = None) -> str:
-    """ایجاد یک نشست گفتگوی جدید."""
+def create_conversation(user_id: str) -> str:
     conv_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO conversations (id, user_id, document_id, created_at) VALUES (?, ?, ?, ?);",
-            (conv_id, user_id, document_id, now)
-        )
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO conversations (id, user_id) VALUES (?, ?);", (conv_id, user_id))
+    conn.commit()
+    conn.close()
     return conv_id
 
 
 def save_message(conversation_id: str, role: str, content: str) -> str:
-    """ثبت یک پیام کاربر یا دستیار هوش مصنوعی."""
-    message_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?);",
-            (message_id, conversation_id, role, content, now)
-        )
-    return message_id
+    msg_id = str(uuid.uuid4())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?);", (msg_id, conversation_id, role, content))
+    conn.commit()
+    conn.close()
+    return msg_id
 
 
 def get_conversation_history(conversation_id: str) -> List[Dict[str, Any]]:
-    """بازیابی پیام‌های یک مکالمه به ترتیب زمانی."""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;",
-            (conversation_id,)
-        )
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;", (conversation_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"role": r["role"], "content": r["content"], "created_at": r["created_at"]} for r in rows]

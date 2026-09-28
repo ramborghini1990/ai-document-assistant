@@ -1,9 +1,7 @@
 import streamlit as st
 import pandas as pd
-from app.ai.gemini import generate_answer
 from datetime import datetime
-from app.reporting.excel_exporter import create_styled_excel_report
-from app.reporting.word_exporter import create_styled_word_report
+from app.ai.gemini import generate_answer
 from app.ai.prompts import build_rag_prompt
 from app.rag.loader import load_document_content
 from app.rag.chunker import split_text_into_chunks
@@ -12,6 +10,8 @@ from app.rag.vectorstore import store_chunks_in_chromadb
 from app.rag.retriever import retrieve_relevant_chunks
 from app.extraction.schemas import AVAILABLE_SCHEMAS
 from app.extraction.extractor import extract_structured_data
+from app.reporting.excel_exporter import create_styled_excel_report
+from app.reporting.word_exporter import create_styled_word_report
 from app.database.database import (
     init_db,
     create_user,
@@ -19,6 +19,8 @@ from app.database.database import (
     create_conversation,
     save_message,
     get_conversation_history,
+    get_company_profile,
+    update_company_profile,
 )
 
 
@@ -32,16 +34,17 @@ def initialize_session():
     if "conversation_id" not in st.session_state:
         st.session_state.conversation_id = create_conversation(st.session_state.user_id)
 
-    # {filename: {"id": doc_id, "chunks": count, "pages": pages_data, "status": "Ready"}}
     if "indexed_documents" not in st.session_state:
         st.session_state.indexed_documents = {}
 
     if "processing_errors" not in st.session_state:
         st.session_state.processing_errors = {}
 
-    # نگهداری رکوردهای استخراج‌شده جهت بازبینی کاربر: {schema_name: List[Dict]}
     if "extracted_data" not in st.session_state:
         st.session_state.extracted_data = {}
+
+    if "company_profile" not in st.session_state:
+        st.session_state.company_profile = get_company_profile()
 
 
 def reset_conversation():
@@ -50,7 +53,7 @@ def reset_conversation():
 
 
 def process_single_document(file) -> int:
-    """خط لوله پردازش چندفرمت (PDF, DOCX) همراه با نگهداری متن صفحات جهت استخراج."""
+    """خط لوله پردازش چندفرمت همراه با نگهداری متن صفحات جهت استخراج."""
     pages = load_document_content(file, file.name)
     if not pages:
         raise ValueError("No readable text could be extracted from document.")
@@ -64,7 +67,6 @@ def process_single_document(file) -> int:
     store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
     doc_id = create_document(st.session_state.user_id, file.name)
 
-    # ذخیره متادیتای صفحات در سشن برای استفاده مستقیم در موتور استخراج
     st.session_state.indexed_documents[file.name] = {
         "id": doc_id,
         "chunks": len(chunks),
@@ -79,7 +81,7 @@ def process_single_document(file) -> int:
 
 
 def flatten_extraction_records(records: list) -> pd.DataFrame:
-    """تبدیل رکوردهای ساختاریافته به دیتافریم جهت نمایش و ویرایش آسان توسط کاربر."""
+    """تبدیل رکوردهای ساختاریافته به دیتافریم جهت بازبینی."""
     rows = []
     for r in records:
         row = {"Source Page": r.get("source_page", 1)}
@@ -89,7 +91,6 @@ def flatten_extraction_records(records: list) -> pd.DataFrame:
             raw_val = fdata.get("raw_value")
             status = fdata.get("status", "EXTRACTED")
 
-            # اولویت نمایش مقدار نرمال‌شده
             display_val = norm_val if norm_val is not None else raw_val
             row[fname] = display_val
             row[f"{fname}_status"] = status
@@ -100,7 +101,7 @@ def flatten_extraction_records(records: list) -> pd.DataFrame:
 
 def render_ui():
     st.set_page_config(
-        page_title="AI Document Assistant — Intelligence & Reporting",
+        page_title="AI Document Intelligence & Reporting",
         page_icon="📋",
         layout="wide",
     )
@@ -113,6 +114,29 @@ def render_ui():
         st.header("⚙️ Session & Workspace")
         st.markdown(f"**User ID:** `{st.session_state.user_id[:8]}...`")
         st.markdown(f"**Conversation ID:** `{st.session_state.conversation_id[:8]}...`")
+
+        # بخش تنظیمات پروفایل شرکت (فاز ۲۳)
+        st.divider()
+        with st.expander("🏢 Profilo Aziendale / Company Profile", expanded=False):
+            st.caption("Configura l'intestazione aziendale per i report ufficiali (Excel / Word).")
+            prof = st.session_state.company_profile
+
+            c_name = st.text_input("Ragione Sociale (Nome Azienda):", value=prof.get("company_name", ""))
+            c_vat = st.text_input("P.IVA / Codice Fiscale:", value=prof.get("vat_number", ""))
+            c_addr = st.text_input("Sede Operativa / Indirizzo:", value=prof.get("address", ""))
+            c_rsga = st.text_input("Responsabile SGA (RSGA):", value=prof.get("rsga_name", ""))
+            c_dir = st.text_input("Direzione Tecnica / Firmatario:", value=prof.get("technical_director", ""))
+
+            if st.button("💾 Aggiorna Profilo Aziendale", use_container_width=True):
+                update_company_profile(
+                    company_name=c_name,
+                    vat_number=c_vat,
+                    address=c_addr,
+                    rsga_name=c_rsga,
+                    technical_director=c_dir
+                )
+                st.session_state.company_profile = get_company_profile()
+                st.success("Profilo aziendale salvato con successo!")
 
         st.divider()
         st.subheader("📚 Active Knowledge Base")
@@ -129,8 +153,9 @@ def render_ui():
             reset_conversation()
             st.rerun()
 
-    st.title("📋 AI Document Assistant — Document Intelligence & Reporting")
-    st.caption("Phase 19 — Schema-Driven Extraction & Interactive Human Review")
+    active_comp = st.session_state.company_profile.get("company_name", "EFFE.EMME S.r.l.")
+    st.title(f"📋 AI Document Assistant — {active_comp}")
+    st.caption("Enterprise Document Intelligence, ISO 14001 Compliance & Dynamic Reporting")
 
     col_ingest, col_workspace = st.columns([1, 1.2], gap="large")
 
@@ -138,10 +163,10 @@ def render_ui():
     with col_ingest:
         st.subheader("1. Ingestion Pipeline")
         uploaded_files = st.file_uploader(
-            "Upload enterprise documents (PDF, DOCX, Images):",
-            type=["pdf", "docx", "jpg", "jpeg", "png", "webp"],
+            "Upload enterprise documents (PDF, DOCX, XLSX, Images):",
+            type=["pdf", "docx", "xlsx", "xls", "jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
-            help="Upload PDF (digital or scanned), Word (.docx), or Image files to ingest."
+            help="Upload PDF (digital/scanned), Word (.docx), Excel (.xlsx/.xls), or Image files to ingest."
         )
 
         if uploaded_files:
@@ -182,11 +207,11 @@ def render_ui():
             for fname, err in st.session_state.processing_errors.items():
                 st.markdown(f"- ⚠️ **{fname}**: {err}")
 
-    # ستون دوم: فضای کاربری دوسطحی (چت مستند و استخراج داده)
+    # ستون دوم: چت مستند و استخراج ساختاریافته
     with col_workspace:
         tab_chat, tab_extraction = st.tabs(["💬 Document Chat (RAG)", "📊 Structured Extraction & Review"])
 
-        # زبانه چت مستند
+        # زبانه چت
         with tab_chat:
             st.caption("Ask grounded questions across all uploaded documents.")
             history = get_conversation_history(st.session_state.conversation_id)
@@ -221,7 +246,7 @@ def render_ui():
                         except Exception as e:
                             st.error(f"⚠️ {str(e)}")
 
-        # زبانه استخراج ساختاریافته و بازبینی داده‌ها (فاز ۱۹)
+        # زبانه استخراج و بازبینی
         with tab_extraction:
             st.caption("Extract structured entity tables, verify field accuracy, and edit before export.")
 
@@ -243,7 +268,6 @@ def render_ui():
 
                 if st.button("🚀 Extract Structured Information", use_container_width=True):
                     with st.spinner(f"Extracting '{selected_schema}' schema via Gemini Tier-1 Engine..."):
-                        # جمع‌آوری صفحات برای استخراج
                         pages_to_extract = []
                         if target_doc == "ALL ACTIVE DOCUMENTS":
                             for doc_meta in st.session_state.indexed_documents.values():
@@ -258,7 +282,6 @@ def render_ui():
                         except Exception as e:
                             st.error(f"Extraction failed: {str(e)}")
 
-		# نمایش جدول بازبینی و امکان ویرایش فیلدها توسط کاربر
                 if selected_schema in st.session_state.extracted_data:
                     current_res = st.session_state.extracted_data[selected_schema]
                     records = current_res.get("records", [])
@@ -268,8 +291,6 @@ def render_ui():
                         st.info("💡 You can edit any cell directly in the table below to correct or refine values before export.")
 
                         df_records = flatten_extraction_records(records)
-
-                        # جداسازی ستون‌های داده اصلی از وضعیت‌ها جهت نمایش تمیز
                         data_cols = [c for c in df_records.columns if not c.endswith("_status")]
                         
                         edited_df = st.data_editor(
@@ -281,17 +302,18 @@ def render_ui():
 
                         st.caption(f"✓ Total Verified Rows: `{len(edited_df)}` | Source Document: `{target_doc}`")
 
-                       # --- بخش خروجی رسمی (Excel و Word) ---
+                        # --- خروجی‌های رسمی با مشخصات داینامیک شرکت ---
                         st.divider()
                         st.subheader("📥 Export Audit & Compliance Deliverables")
-                        st.caption("Generate formal ISO 14001 deliverables for data analysis (Excel) and management sign-off (Word).")
+                        st.caption(f"Document deliverables configured for: **{st.session_state.company_profile.get('company_name')}**")
 
                         col_dl_excel, col_dl_word = st.columns(2)
 
                         with col_dl_excel:
                             excel_bytes = create_styled_excel_report(
                                 extracted_data_by_schema=st.session_state.extracted_data,
-                                source_documents=list(st.session_state.indexed_documents.keys())
+                                source_documents=list(st.session_state.indexed_documents.keys()),
+                                company_profile=st.session_state.company_profile
                             )
                             st.download_button(
                                 label=f"📊 Download Business Excel ({selected_schema.upper()})",
@@ -304,7 +326,8 @@ def render_ui():
                         with col_dl_word:
                             word_bytes = create_styled_word_report(
                                 extracted_data_by_schema=st.session_state.extracted_data,
-                                source_documents=list(st.session_state.indexed_documents.keys())
+                                source_documents=list(st.session_state.indexed_documents.keys()),
+                                company_profile=st.session_state.company_profile
                             )
                             st.download_button(
                                 label=f"📄 Download Formal Word Report (.docx)",

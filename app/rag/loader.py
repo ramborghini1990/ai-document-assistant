@@ -1,6 +1,7 @@
 import io
 import os
 from typing import List, Dict, Any
+import pandas as pd
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from PIL import Image
@@ -15,7 +16,6 @@ except ImportError:
 
 def _transcribe_page_image(pil_img: Image.Image, page_num: int, filename: str) -> str:
     """ارسال تصویر صفحه اسکن‌شده به هوش مصنوعی جهت بازخوانی متن و جداول."""
-    # بهینه‌سازی ابعاد تصویر جهت سرعت و کیفیت ایده‌آل
     if pil_img.mode != "RGB":
         pil_img = pil_img.convert("RGB")
 
@@ -38,11 +38,7 @@ def _transcribe_page_image(pil_img: Image.Image, page_num: int, filename: str) -
 
 
 def extract_text_from_pdf(file_stream, filename: str) -> List[Dict[str, Any]]:
-    """
-    استخراج هوشمند متن از PDF:
-    اگر صفحه دارای متن دیجیتال باشد، مستقیماً استخراج می‌شود.
-    اگر صفحه اسکن‌شده باشد، خودکار به تصویر تبدیل شده و با بینایی ماشین بازخوانی می‌شود.
-    """
+    """استخراج هوشمند متن از PDF (دیجیتال مستقیم + اسکن با Vision)."""
     if not file_stream:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
 
@@ -57,7 +53,6 @@ def extract_text_from_pdf(file_stream, filename: str) -> List[Dict[str, Any]]:
     if not reader.pages:
         raise ValueError(f"The PDF file '{filename}' contains no pages.")
 
-    # باز کردن با PyMuPDF برای رندر صفحات در صورت اسکن بودن
     fitz_doc = None
     if PYMUPDF_AVAILABLE:
         try:
@@ -77,17 +72,13 @@ def extract_text_from_pdf(file_stream, filename: str) -> List[Dict[str, Any]]:
 
         cleaned_text = " ".join(text.split())
 
-        # بررسی آیا صفحه اسکن‌شده است؟ (کمتر از ۳۰ کاراکتر متن قابل استخراج)
         if len(cleaned_text) < 30:
             scanned_text = ""
-            # روش ۱: رندر با PyMuPDF
             if fitz_doc and idx < len(fitz_doc):
                 fitz_page = fitz_doc[idx]
                 pix = fitz_page.get_pixmap(dpi=150)
                 page_img = Image.open(io.BytesIO(pix.tobytes("png")))
                 scanned_text = _transcribe_page_image(page_img, page_num, filename)
-
-            # روش ۲: استخراج عکس داخلی صفحه با pypdf در صورت عدم وجود PyMuPDF
             elif page.images:
                 try:
                     first_img = page.images[0]
@@ -128,13 +119,11 @@ def extract_text_from_docx(file_stream, filename: str) -> List[Dict[str, Any]]:
 
     content_blocks = []
 
-    # استخراج پاراگراف‌ها
     for para in doc.paragraphs:
         text = para.text.strip()
         if text:
             content_blocks.append(text)
 
-    # استخراج جداول
     for table in doc.tables:
         for row in table.rows:
             row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
@@ -171,6 +160,61 @@ def extract_text_from_image(file_stream, filename: str) -> List[Dict[str, Any]]:
     return [{"page_number": 1, "text": text, "is_scanned": True}]
 
 
+def extract_text_from_excel(file_stream, filename: str) -> List[Dict[str, Any]]:
+    """
+    استخراج ساختاریافته داده‌های شیت‌ها و سطرهای دفاتر اکسل (.xlsx, .xls).
+    هر شیت به عنوان یک شماره صفحه مستقل لحاظ می‌شود تا قابلیت ردیابی سندی حفظ گردد.
+    """
+    if not file_stream:
+        raise ValueError(f"File stream for '{filename}' is empty or invalid.")
+
+    try:
+        file_stream.seek(0)
+        xls = pd.ExcelFile(file_stream)
+    except Exception as e:
+        raise ValueError(f"Failed to read Excel workbook '{filename}': {str(e)}")
+
+    pages_data = []
+
+    for idx, sheet_name in enumerate(xls.sheet_names):
+        page_num = idx + 1
+        try:
+            df = pd.read_excel(xls, sheet_name=sheet_name)
+        except Exception:
+            continue
+
+        df = df.dropna(how="all").dropna(axis=1, how="all")
+        if df.empty:
+            continue
+
+        lines = [f"=== FOGLIO EXCEL: {sheet_name} (Pagina {page_num}) ==="]
+        columns = [str(c).strip() for c in df.columns]
+        lines.append(f"Colonne: {' | '.join(columns)}")
+
+        for r_idx, row in df.iterrows():
+            row_items = []
+            for col in df.columns:
+                val = row[col]
+                if pd.notna(val) and str(val).strip():
+                    if isinstance(val, pd.Timestamp):
+                        val_str = val.strftime('%Y-%m-%d')
+                    else:
+                        val_str = str(val).strip()
+                    row_items.append(f"{col}: {val_str}")
+            if row_items:
+                lines.append(f"Riga {r_idx + 1}: " + " | ".join(row_items))
+
+        sheet_text = "\n".join(lines).strip()
+        if sheet_text:
+            pages_data.append({
+                "page_number": page_num,
+                "text": sheet_text,
+                "is_scanned": False
+            })
+
+    return pages_data
+
+
 def load_document_content(file, filename: str) -> List[Dict[str, Any]]:
     """توزیع‌کننده یکپارچه ورود اسناد بر اساس پسوند."""
     ext = os.path.splitext(filename)[1].lower()
@@ -179,7 +223,9 @@ def load_document_content(file, filename: str) -> List[Dict[str, Any]]:
         return extract_text_from_pdf(file, filename)
     elif ext in [".docx", ".doc"]:
         return extract_text_from_docx(file, filename)
+    elif ext in [".xlsx", ".xls"]:
+        return extract_text_from_excel(file, filename)
     elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
         return extract_text_from_image(file, filename)
     else:
-        raise ValueError(f"Unsupported file format '{ext}'. Supported: PDF, DOCX, JPG, PNG, WEBP.")
+        raise ValueError(f"Unsupported file format '{ext}'. Supported: PDF, DOCX, XLSX, XLS, JPG, PNG, WEBP.")
