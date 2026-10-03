@@ -1,14 +1,13 @@
 import os
 from typing import List, Dict, Any
 import chromadb
-from chromadb.config import Settings
 
 # مسیر ذخیره‌سازی داده‌های وکتور دیتابیس در ریشه پروژه
 CHROMA_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "chroma_data")
 
 
 def get_chroma_client() -> chromadb.PersistentClient:
-    """ایجاد یا فراخوانی کلاینت محلی و پایدار ChromaDB."""
+    """ایجاد یا فراخوانی کلاینت محلی و پایدار ChromaDB با مسیر مطلق."""
     os.makedirs(CHROMA_DATA_PATH, exist_ok=True)
     return chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 
@@ -20,6 +19,10 @@ def get_or_create_collection(collection_name: str = "document_chunks"):
         name=collection_name,
         metadata={"hnsw:space": "cosine"}
     )
+
+
+# معادل‌سازی برای حفظ ۱۰۰٪ سازگاری رو به عقب و جلوگیری از بروز هرگونه ImportError
+get_chroma_collection = get_or_create_collection
 
 
 def store_chunks_in_chromadb(
@@ -58,3 +61,21 @@ def store_chunks_in_chromadb(
     )
 
     return len(ids)
+
+
+def remove_document_from_chromadb(document_name: str, collection_name: str = "document_chunks") -> None:
+    """حذف خودکار تمامی چانک‌های متعلق به یک سند مشخص از ChromaDB."""
+    try:
+        collection = get_or_create_collection(collection_name)
+        collection.delete(where={"document_name": document_name})
+    except Exception as e:
+        print(f"Warning: Failed to delete chunks for {document_name}: {e}")
+
+
+def clear_chroma_collection(collection_name: str = "document_chunks") -> None:
+    """پاک‌سازی کامل کالکشن برداری با کلاینت اصلی در صورت خالی شدن تمامی اسناد."""
+    try:
+        client = get_chroma_client()
+        client.delete_collection(name=collection_name)
+    except Exception:
+        pass

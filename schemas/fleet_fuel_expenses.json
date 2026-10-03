@@ -1,0 +1,34 @@
+{
+  "module_id": "fleet_fuel_expenses",
+  "label": "Flotta — Carburante e Spese Operative",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are a fleet management data auditor. Extract vehicle fuel receipts, license plates, and operational fuel expenses with precision. Never guess numbers."
+  },
+  "report": {
+    "workbook_title": "REPORT SPESE E CONSUMI FLOTTA AZIENDALE",
+    "doc_title": "RAPPORTO CONSUMI E SPESE FLOTTA",
+    "doc_subtitle": "Gestione Automezzi e Carburanti",
+    "filename_prefix": "FLOTTA",
+    "signoff": [
+      {"label": "Responsabile Flotta: {name}", "profile_key": "technical_director"}
+    ]
+  },
+  "schemas": {
+    "fuel_expense": {
+      "label": "Rifornimenti Carburante",
+      "description": "Rifornimenti e spese carburante per singolo automezzo.",
+      "fields": {
+        "targa": {"type": "plate", "label": "Targa", "required": true, "description": "Targa del mezzo"},
+        "data_rifornimento": {"type": "date", "label": "Data Rifornimento", "description": "Data del rifornimento"},
+        "litri": {"type": "number", "label": "Litri", "description": "Litri erogati"},
+        "importo_eur": {"type": "number", "label": "Importo Speso (€)", "description": "Importo speso in euro"},
+        "chilometri": {"type": "number", "label": "Chilometri", "description": "Chilometraggio indicato"}
+      },
+      "computed": {
+        "costo_per_litro": {"op": "ratio", "inputs": ["importo_eur", "litri"], "scale": 1.0, "decimals": 3, "unit": "€/L", "label": "Costo (€/L)"},
+        "consumo_l_100km": {"op": "ratio", "inputs": ["litri", "chilometri"], "scale": 100.0, "decimals": 2, "unit": "L/100km", "label": "Consumo (L/100km)"}
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "module_id": "general_documents",
+  "label": "Documenti Generali e Contratti",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are a precise corporate documentation auditor. Extract administrative entities with absolute fidelity to the source text. Never invent dates or reference numbers. Return null if not found."
+  },
+  "report": {
+    "workbook_title": "REPORT DOCUMENTI AZIENDALI GENERALI",
+    "doc_title": "RAPPORTO ESTRAZIONE DOCUMENTALE GENERALE",
+    "doc_subtitle": "Amministrazione e Contrattualistica",
+    "filename_prefix": "GENERAL",
+    "signoff": [
+      {"label": "Verificato da: {name}", "profile_key": "technical_director"}
+    ]
+  },
+  "schemas": {
+    "general": {
+      "label": "Documento Generale",
+      "description": "Estrazione generale per contratti, comunicazioni istituzionali e documentazione varia.",
+      "fields": {
+        "titolo_documento": {"type": "string", "label": "Titolo Documento", "required": true, "description": "Titolo o oggetto principale"},
+        "ente_emittente": {"type": "string", "label": "Ente Emittente", "description": "Azienda o ente emittente"},
+        "numero_protocollo": {"type": "string", "label": "Numero Protocollo", "description": "Numero protocollo o identificativo"},
+        "data_emissione": {"type": "date", "label": "Data Emissione", "description": "Data emissione documento"},
+        "data_scadenza": {"type": "date", "label": "Data Scadenza", "description": "Data eventuale di scadenza", "alert": {"thresholds_days": [30, 15, 7], "label_fields": ["titolo_documento"]}},
+        "oggetto_sintesi": {"type": "string", "label": "Oggetto Sintesi", "description": "Sintesi del contenuto rilevante"}
+      }
+    }
+  }
+}

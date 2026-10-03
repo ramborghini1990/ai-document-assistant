@@ -1,0 +1,96 @@
+{
+  "module_id": "iso_14001",
+  "label": "ISO 14001 — Sistema di Gestione Ambientale (SGA)",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are a certified ISO 14001 Environmental Management System (SGA) and legal compliance data extraction auditor. Extract structured entities with absolute fidelity to the source text. Never invent expiries, amounts, or roles. If a field is not present in the document text, return null."
+  },
+  "report": {
+    "workbook_title": "REPORT DOCUMENT INTELLIGENCE & COMPLIANCE",
+    "doc_title": "RAPPORTO DI CONFORMITÀ E AUDIT",
+    "doc_subtitle": "Sistema di Gestione Ambientale (UNI EN ISO 14001:2026)",
+    "filename_prefix": "ISO14001",
+    "signoff": [
+      {"label": "Verificato da (RSGA: {name}):", "profile_key": "rsga_name"},
+      {"label": "Approvato da (Direzione: {name}):", "profile_key": "technical_director"}
+    ]
+  },
+  "schemas": {
+    "scadenziario": {
+      "label": "Scadenziario adempimenti",
+      "description": "Adempimenti, prescrizioni normative, autorizzazioni ambientali e visite mediche.",
+      "fields": {
+        "tema": {"type": "string", "label": "Tema / Area", "description": "es. Gestione Rifiuti, Emissioni, PPGA, Salute e Sicurezza"},
+        "adempimento": {"type": "string", "label": "Adempimento / Descrizione", "required": true, "description": "Descrizione sintetica dell'obbligo o della prescrizione"},
+        "scadenza": {"type": "date", "label": "Data Scadenza", "required": true, "description": "Data limite copiata esattamente come scritta", "alert": {"thresholds_days": [30, 15, 7], "label_fields": ["adempimento", "responsabile"]}},
+        "preavviso": {"type": "string", "label": "Preavviso / Frequenza", "description": "es. 30 giorni, 6 mesi"},
+        "responsabile": {"type": "string", "label": "Responsabile", "description": "Figura o ente responsabile dell'attuazione"},
+        "stato": {"type": "string", "label": "Stato", "description": "Pianificato, In corso, Concluso, Da verificare"},
+        "evidenza_note": {"type": "string", "label": "Evidenza / Protocollo / Note", "description": "Documento di evidenza, verbale o note"},
+        "allerta": {"type": "string", "label": "Allerta / Priorità", "description": "Livello di priorità o allerta"}
+      }
+    },
+    "vehicle_fuel": {
+      "label": "Parco veicoli e consumi",
+      "description": "Monitoraggio veicoli, carburante e scadenze revisioni periodiche.",
+      "fields": {
+        "targa": {"type": "plate", "label": "Targa Mezzo", "required": true, "description": "Targa del veicolo es. AA123BB"},
+        "modello": {"type": "string", "label": "Modello / Descrizione", "description": "Marca e modello veicolo"},
+        "scadenza_revisione": {"type": "date", "label": "Scadenza Revisione", "description": "Data scadenza revisione periodica", "alert": {"thresholds_days": [30, 15, 7], "label_fields": ["targa", "modello"]}},
+        "periodo": {"type": "string", "label": "Periodo Riferimento", "description": "Mese o intervallo di riferimento"},
+        "litri": {"type": "number", "label": "Litri Carburante", "description": "Litri totali consumati"},
+        "chilometri": {"type": "number", "label": "Km Percorsi", "description": "Chilometri percorsi"}
+      },
+      "computed": {
+        "consumo_l_100km": {"op": "ratio", "inputs": ["litri", "chilometri"], "scale": 100, "decimals": 2, "unit": "L/100km", "label": "Consumo (L/100km)"}
+      }
+    },
+    "utility_consumption": {
+      "label": "Consumi Utenze e Risorse",
+      "description": "Monitoraggio consumi energia elettrica, acqua industriale, gas naturale.",
+      "fields": {
+        "tipo_utenza": {"type": "string", "label": "Tipo Utenza", "required": true, "description": "Elettricità, Acqua, Gas"},
+        "fornitore": {"type": "string", "label": "Fornitore / Gestore", "description": "Ragione sociale fornitore"},
+        "codice_pod_pdr": {"type": "string", "label": "Codice POD / PDR / Matricola", "description": "POD, PDR o Matricola contatore"},
+        "periodo_riferimento": {"type": "string", "label": "Periodo Fatturato", "required": true, "description": "Mese/Anno o intervallo fatturato"},
+        "consumo_totale": {"type": "number", "label": "Consumo Totale", "required": true, "description": "Quantitativo totale fatturato"},
+        "unita_misura": {"type": "string", "label": "Unità Misura", "description": "kWh, m3, Smc, Litri"},
+        "ripartizione_fasce": {"type": "string", "label": "Ripartizione Fasce (F1/F2/F3)", "description": "Dettagli fasce o scaglioni"},
+        "totale_spesa_eur": {"type": "number", "label": "Importo Totale Spesa (€)", "description": "Importo totale documento in Euro"}
+      }
+    },
+    "personnel_training": {
+      "label": "Formazione e Abilitazioni Personale",
+      "description": "Registro formazione obbligatoria D.Lgs 81/08 e abilitazioni macchinari.",
+      "fields": {
+        "nominativo_dipendente": {"type": "string", "label": "Dipendente / Collaboratore", "required": true, "description": "Nome e cognome lavoratore"},
+        "codice_fiscale": {"type": "string", "label": "Codice Fiscale", "description": "Codice Fiscale lavoratore"},
+        "corso_descrizione": {"type": "string", "label": "Titolo Corso / Abilitazione", "required": true, "description": "Titolo del corso"},
+        "riferimento_normativo": {"type": "string", "label": "Riferimento Normativo", "description": "Articoli D.Lgs. 81/08"},
+        "numero_protocollo": {"type": "string", "label": "N. Protocollo Attestato", "description": "Identificativo attestato"},
+        "ente_formatore": {"type": "string", "label": "Ente Formatore / CFPT", "description": "Soggetto formatore accreditato"},
+        "data_emissione": {"type": "date", "label": "Data Attestato", "required": true, "description": "Data attestato o superamento corso"},
+        "data_scadenza_rinnovo": {"type": "date", "label": "Scadenza Aggiornamento", "description": "Termine aggiornamento obbligatorio", "alert": {"thresholds_days": [60, 30, 15], "label_fields": ["nominativo_dipendente", "corso_descrizione"]}},
+        "frequenza_anni": {"type": "number", "label": "Frequenza (Anni)", "description": "Frequenza aggiornamento in anni"},
+        "ore_formazione": {"type": "number", "label": "Durata (Ore)", "description": "Durata corso in ore"},
+        "stato_validita": {"type": "string", "label": "Validità", "description": "Valido, In scadenza, Scaduto"}
+      }
+    },
+    "regulatory_authorization": {
+      "label": "Autorizzazioni e Titoli Abilitativi",
+      "description": "Autorizzazioni ambientali, iscrizioni Albo Gestori e codici EER.",
+      "fields": {
+        "numero_atto_protocollo": {"type": "string", "label": "N. Atto / Protocollo", "required": true, "description": "Numero identificativo autorizzazione"},
+        "numero_iscrizione": {"type": "string", "label": "N. Iscrizione Albo / Registro", "description": "Numero iscrizione Albo es. TO15878"},
+        "ente_rilascio": {"type": "string", "label": "Ente Rilascio", "required": true, "description": "Provincia, Regione, Albo Gestori"},
+        "data_rilascio": {"type": "date", "label": "Data Rilascio", "description": "Data emanazione provvedimento"},
+        "data_scadenza": {"type": "date", "label": "Data Scadenza Atto", "description": "Termine di validità dell'atto", "alert": {"thresholds_days": [180, 90, 30], "label_fields": ["numero_atto_protocollo", "ente_rilascio"]}},
+        "attivita_autorizzate": {"type": "string", "label": "Attività e Categorie Autorizzate", "description": "Operazioni autorizzate: es. Categoria 4-E, R13, R4"},
+        "mezzi_autorizzati": {"type": "string", "label": "Mezzi e Targhe Autorizzati", "description": "Targhe e tipologia mezzi autorizzati"},
+        "elenco_codici_eer": {"type": "string", "label": "Codici EER / Rifiuti Ammessi", "description": "Codici EER / CER ammessi"},
+        "responsabili_tecnici_note": {"type": "string", "label": "Responsabile Tecnico / Variazioni", "description": "Nomine o cessazioni incarico"},
+        "prescrizioni_rilevanti": {"type": "string", "label": "Prescrizioni / Condizioni Subordinanti", "description": "Garanzie finanziarie o prescrizioni"}
+      }
+    }
+  }
+}
