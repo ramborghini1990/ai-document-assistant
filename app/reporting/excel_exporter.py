@@ -1,92 +1,38 @@
 import io
-from datetime import datetime
+from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-# نگاشت فیلدهای فنی به ستون‌های رسمی سازمانی
-COLUMN_LABELS = {
-    # Scadenziario
-    "tema": "Tema / Area",
-    "adempimento": "Adempimento / Descrizione",
-    "scadenza": "Data Scadenza",
-    "preavviso": "Preavviso / Frequenza",
-    "responsabile": "Responsabile",
-    "stato": "Stato",
-    "evidenza_note": "Evidenza / Protocollo / Note",
-    "allerta": "Allerta / Priorità",
-    
-    # Vehicle & Fuel
-    "targa": "Targa Mezzo",
-    "modello": "Modello / Descrizione",
-    "scadenza_revisione": "Scadenza Revisione",
-    "periodo": "Periodo Riferimento",
-    "litri": "Litri Carburante",
-    "chilometri": "Km Percorsi",
-    "consumo_l_100km": "Consumo (L/100km)",
-
-    # Utility Consumption
-    "tipo_utenza": "Tipo Utenza",
-    "fornitore": "Fornitore / Gestore",
-    "codice_pod_pdr": "Codice POD / PDR / Matricola",
-    "periodo_riferimento": "Periodo Fatturato",
-    "consumo_totale": "Consumo Totale",
-    "unita_misura": "Unità Misura",
-    "ripartizione_fasce": "Ripartizione Fasce (F1/F2/F3)",
-    "totale_spesa_eur": "Importo Totale Spesa (€)",
-
-    # Personnel Training
-    "nominativo_dipendente": "Dipendente / Collaboratore",
-    "codice_fiscale": "Codice Fiscale",
-    "corso_descrizione": "Titolo Corso / Abilitazione",
-    "riferimento_normativo": "Riferimento Normativo",
-    "numero_protocollo": "N. Protocollo Attestato",
-    "ente_formatore": "Ente Formatore / CFPT",
-    "data_emissione": "Data Attestato",
-    "data_scadenza_rinnovo": "Scadenza Aggiornamento",
-    "frequenza_anni": "Frequenza (Anni)",
-    "ore_formazione": "Durata (Ore)",
-    "stato_validita": "Validità",
-
-    # Regulatory Authorization
-    "numero_atto_protocollo": "N. Atto / Protocollo",
-    "numero_iscrizione": "N. Iscrizione Albo / Registro",
-    "ente_rilascio": "Ente Rilascio",
-    "data_rilascio": "Data Rilascio",
-    "data_scadenza": "Data Scadenza Atto",
-    "attivita_autorizzate": "Attività e Categorie Autorizzate",
-    "mezzi_autorizzati": "Mezzi e Targhe Autorizzati",
-    "elenco_codici_eer": "Codici EER / Rifiuti Ammessi",
-    "responsabili_tecnici_note": "Responsabile Tecnico / Variazioni",
-    "prescrizioni_rilevanti": "Prescrizioni / Condizioni Subordinanti",
-    
-    # General
-    "titolo_documento": "Titolo Documento",
-    "ente_emittente": "Ente Emittente",
-    "data_emissione": "Data Emissione",
-    "oggetto_sintesi": "Oggetto Sintesi",
-    
-    # Metadata
-    "source_page": "Pagina Fonte",
-    "source_document": "Documento Fonte"
-}
+from app.reporting.common import (
+    resolve_scope,
+    report_meta,
+    column_plan,
+    cell_value,
+    COLUMN_LABELS
+)
 
 
 def create_styled_excel_report(
     extracted_data_by_schema: Dict[str, Any],
     source_documents: List[str],
     company_profile: Optional[Dict[str, Any]] = None,
-    selected_fields_by_schema: Optional[Dict[str, List[str]]] = None
+    selected_fields_by_schema: Optional[Dict[str, List[str]]] = None,
+    module_id: Optional[str] = None
 ) -> bytes:
     """
-    تولید فایل اکسل تجاری با امکان فیلتر دلخواه ستون‌ها توسط کاربر (Phase 26).
+    تولید فایل اکسل تجاری با تفکیک قطعی ماژول (Scoped Reporting).
     """
+    # ۱. اعمال فیلتر اسکوپ: فقط اسکیماهای مرتبط با ماژول فعال باقی می‌مانند
+    module, scoped_data = resolve_scope(extracted_data_by_schema, module_id)
+    meta = report_meta(module)
+
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
     comp = company_profile or {}
-    comp_name = comp.get("company_name", "EFFE.EMME S.r.l.")
+    comp_name = comp.get("company_name", "AZIENDA")
     vat_number = comp.get("vat_number", "")
     address = comp.get("address", "")
 
@@ -95,6 +41,7 @@ def create_styled_excel_report(
     data_font = Font(name="Segoe UI", size=10)
     meta_font = Font(name="Segoe UI", size=10, italic=True, color="555555")
     calculated_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
+    edited_fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
     
     thin_border = Border(
         left=Side(style="thin", color="CCCCCC"),
@@ -103,11 +50,12 @@ def create_styled_excel_report(
         bottom=Side(style="thin", color="CCCCCC")
     )
 
-    # شیت ۱: خلاصه مدیریتی
+    # شیت ۱: خلاصه ممیزی (Audit Summary)
     ws_summary = wb.create_sheet(title="RIEPILOGO_GENERALE")
     ws_summary.views.sheetView[0].showGridLines = True
 
-    ws_summary["A1"] = f"REPORT DOCUMENT INTELLIGENCE & COMPLIANCE — {comp_name.upper()}"
+    workbook_title = meta.get("workbook_title", "REPORT DOCUMENT INTELLIGENCE")
+    ws_summary["A1"] = f"{workbook_title} — {comp_name.upper()}"
     ws_summary["A1"].font = Font(name="Segoe UI", size=13, bold=True, color="1E4D2B")
     
     sub_line = f"P.IVA / C.F.: {vat_number}" if vat_number else ""
@@ -141,16 +89,28 @@ def create_styled_excel_report(
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     row_idx += 1
-    for schema_name, data in extracted_data_by_schema.items():
+    for schema_name, data in scoped_data.items():
         recs = data.get("records", [])
+        
+        # محاسبه واقعی وضعیت بر اساس داده‌ها
+        has_uncertain = any("uncertain_required" in str(r.get("warnings", [])) for r in recs)
+        has_edited = any(f.get("status") == "EDITED" for r in recs for f in r.get("fields", {}).values())
+        
+        if has_uncertain:
+            status_desc = "Da verificare"
+        elif has_edited:
+            status_desc = "Verificato (Modificato)"
+        else:
+            status_desc = "Completato"
+
         ws_summary.cell(row=row_idx, column=1, value=schema_name.upper()).font = data_font
         ws_summary.cell(row=row_idx, column=2, value=len(recs)).font = data_font
-        ws_summary.cell(row=row_idx, column=3, value="Completato").font = data_font
+        ws_summary.cell(row=row_idx, column=3, value=status_desc).font = data_font
         ws_summary.cell(row=row_idx, column=4, value=schema_name.upper()).font = data_font
         row_idx += 1
 
-    # شیت‌های داده‌های تخصصی با فیلتر ستون‌ها
-    for schema_name, data in extracted_data_by_schema.items():
+    # شیت‌های اختصاصی برای اسکیماهای معتبر
+    for schema_name, data in scoped_data.items():
         sheet_title = schema_name.upper()[:31]
         ws = wb.create_sheet(title=sheet_title)
         ws.views.sheetView[0].showGridLines = True
@@ -161,16 +121,11 @@ def create_styled_excel_report(
             ws.cell(row=1, column=1, value="Nessun dato estratto per questo schema.").font = meta_font
             continue
 
-        sample_fields = list(records[0].get("fields", {}).keys())
-        
-        # اعمال فیلتر ستون‌های انتخابی کاربر
-        if selected_fields_by_schema and schema_name in selected_fields_by_schema:
-            user_fields = selected_fields_by_schema[schema_name]
-            filtered = [f for f in sample_fields if f in user_fields]
-            if filtered:
-                sample_fields = filtered
+        user_selected = (selected_fields_by_schema or {}).get(schema_name)
+        col_plan = column_plan(schema_name, module, records, user_selected)
 
-        headers = ["Pagina Fonte"] + [COLUMN_LABELS.get(f, f.replace("_", " ").title()) for f in sample_fields] + ["Stato Estrazione"]
+        # ساخت ستون‌های جدول
+        headers = ["Documento Fonte", "Pagina Fonte"] + [col[1] for col in col_plan] + ["Stato Estrazione"]
 
         for col_i, h_name in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col_i, value=h_name)
@@ -179,39 +134,51 @@ def create_styled_excel_report(
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
         for r_idx, record in enumerate(records, start=2):
+            src_doc = record.get("source_document") or "-"
             src_page = record.get("source_page", 1)
             fields = record.get("fields", {})
 
-            p_cell = ws.cell(row=r_idx, column=1, value=f"Pagina {src_page}")
+            # Documento Fonte
+            d_cell = ws.cell(row=r_idx, column=1, value=src_doc)
+            d_cell.font = data_font
+            d_cell.border = thin_border
+
+            # Pagina Fonte
+            p_cell = ws.cell(row=r_idx, column=2, value=f"Pagina {src_page}")
             p_cell.font = meta_font
             p_cell.alignment = Alignment(horizontal="center")
             p_cell.border = thin_border
 
-            overall_status = "EXTRACTED"
-            for c_idx, fname in enumerate(sample_fields, start=2):
+            row_status = "EXTRACTED"
+            for c_idx, (fname, flabel) in enumerate(col_plan, start=3):
                 fdata = fields.get(fname, {})
-                norm_val = fdata.get("normalized_value")
-                raw_val = fdata.get("raw_value")
                 f_status = fdata.get("status", "EXTRACTED")
-                if f_status == "CALCULATED":
-                    overall_status = "CALCULATED"
+                val_to_write = cell_value(fdata)
 
-                val_to_write = norm_val if norm_val is not None else raw_val
+                if f_status == "EDITED":
+                    row_status = "EDITED"
+                elif f_status == "CALCULATED" and row_status != "EDITED":
+                    row_status = "CALCULATED"
+
                 cell = ws.cell(row=r_idx, column=c_idx, value=val_to_write)
                 cell.font = data_font
                 cell.border = thin_border
 
                 if f_status == "CALCULATED":
                     cell.fill = calculated_fill
+                elif f_status == "EDITED":
+                    cell.fill = edited_fill
 
-                if any(k in fname for k in ["data", "scadenza", "targa", "periodo", "consumo"]):
+                if any(k in fname for k in ["data", "scadenza", "targa", "periodo"]):
                     cell.alignment = Alignment(horizontal="center")
 
-            st_cell = ws.cell(row=r_idx, column=len(headers), value=overall_status)
-            st_cell.font = Font(name="Segoe UI", size=9, bold=True, color="2E7D32" if overall_status == "EXTRACTED" else "1565C0")
+            st_cell = ws.cell(row=r_idx, column=len(headers), value=row_status)
+            color_map = {"EXTRACTED": "2E7D32", "CALCULATED": "1565C0", "EDITED": "E65100"}
+            st_cell.font = Font(name="Segoe UI", size=9, bold=True, color=color_map.get(row_status, "2E7D32"))
             st_cell.alignment = Alignment(horizontal="center")
             st_cell.border = thin_border
 
+    # تنظیم عرض ستون‌ها به صورت پویا
     for ws_item in wb.worksheets:
         for col in ws_item.columns:
             max_len = 0
@@ -220,7 +187,7 @@ def create_styled_excel_report(
                 val_str = str(cell.value or "")
                 if len(val_str) > max_len:
                     max_len = len(val_str)
-            ws_item.column_dimensions[col_letter].width = max(max_len + 4, 14)
+            ws_item.column_dimensions[col_letter].width = max(max_len + 4, 15)
 
     output = io.BytesIO()
     wb.save(output)

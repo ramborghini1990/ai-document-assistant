@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List
-
+from app.ui.theme import inject_custom_css, render_kpi_row
+from app.alerts.store import get_active_deadlines
+from app.alerts.scanner import scan_deadlines
 from app.ai.gemini import generate_answer
 from app.ai.prompts import build_rag_prompt
 from app.rag.loader import load_document_content
@@ -115,6 +117,7 @@ def render_ui():
         page_icon="📋",
         layout="wide",
     )
+    inject_custom_css()
 
     initialize_session()
     total_chunks = sum(doc["chunks"] for doc in st.session_state.indexed_documents.values())
@@ -167,6 +170,36 @@ def render_ui():
     active_comp = st.session_state.company_profile.get("company_name", "Azienda")
     st.title(f"📋 {current_module.label}")
     st.caption(f"Enterprise Document Intelligence — Multi-Tenant Platform | {active_comp}")
+
+    # محاسبه آمار زنده برای کارت‌های KPI
+    mid = current_module.module_id
+    total_docs = len(st.session_state.indexed_documents)
+    total_chunks = sum(doc["chunks"] for doc in st.session_state.indexed_documents.values())
+
+    # شمارش رکوردهای استخراج‌شده ماژول فعال
+    mod_records = sum(
+        len(st.session_state.reviewed_data.get(mid, {}).get(s, res.get("records", [])))
+        for s, res in st.session_state.extracted_data.get(mid, {}).items()
+    )
+
+    # بررسی سررسیدهای ۳۰ روز آینده
+    try:
+        active_deadlines = get_active_deadlines()
+        urgent_alerts = scan_deadlines(active_deadlines, max_overdue_days=30)
+        urgent_count = len([a for a in urgent_alerts if a.days_left <= 30])
+        urgent_level = "crit" if urgent_count > 0 else ""
+    except Exception:
+        urgent_count = 0
+        urgent_level = ""
+
+    # نمایش کارت‌های مدرن KPI بالای صفحه
+    kpi_items = [
+        ("Documenti Attivi", total_docs, "Knowledge Base", ""),
+        ("Chunk Vettoriali", total_chunks, "ChromaDB Indice", ""),
+        ("Record Estratti", mod_records, f"Modulo: {current_module.module_id}", ""),
+        ("Scadenze (≤ 30 gg)", urgent_count, "Attenzione richiesta", urgent_level)
+    ]
+    render_kpi_row(kpi_items)
 
     col_ingest, col_workspace = st.columns([1, 1.2], gap="large")
 
@@ -233,7 +266,11 @@ def render_ui():
 
     # ستون دوم: چت و استخراج ساختاریافته
     with col_workspace:
-        tab_chat, tab_extraction = st.tabs(["💬 Document Chat (RAG)", "📊 Structured Extraction & Review"])
+        tab_chat, tab_extraction, tab_deadlines = st.tabs([
+    "💬 Document Chat (RAG)", 
+    "📊 Structured Extraction & Review", 
+    "⏰ Scadenze & Monitoraggio"
+])
 
         # زبانه چت
         with tab_chat:
@@ -248,7 +285,9 @@ def render_ui():
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-            top_k = st.slider("Chunk di contesto (top_k):", min_value=1, max_value=8, value=4)
+            with st.expander("⚙️ Parametri Avanzati di Ricerca (Opzionale)", expanded=False):
+                top_k = st.slider("Profondità di contesto (Top-K Chunks):", min_value=1, max_value=8, value=4,
+                      help="Numero di frammenti di testo più rilevanti inviati al modello per la risposta.")
             user_query = st.chat_input("Fai una domanda sui documenti...")
 
             if user_query:
@@ -277,20 +316,23 @@ def render_ui():
             mid = current_module.module_id
             st.caption(f"Estrazione mirata per: **{current_module.label}**")
 
-            if not st.session_state.indexed_documents:
-                st.info("Carica i documenti per abilitare l'estrazione conforme allo standard.")
+            # انتخاب اسکیما همیشه در دسترس است تا خطا رخ ندهد
+            schema_names = list(current_module.schemas.keys())
+            if not schema_names:
+                st.warning("Nessuno schema disponibile per questo modulo.")
             else:
-                c_schema, c_doc = st.columns([1, 1])
-                with c_schema:
-                    schema_name = st.selectbox(
-                        "Schema di Estrazione:",
-                        options=list(current_module.schemas.keys()),
-                        format_func=lambda s: f"{current_module.schemas[s].label} — {current_module.schemas[s].description}",
-                        key=f"schema_select_{mid}"
-                    )
-                    schema_def = current_module.schemas[schema_name]
+                schema_name = st.selectbox(
+                    "Schema di Estrazione:",
+                    options=schema_names,
+                    format_func=lambda s: f"{current_module.schemas[s].label} — {current_module.schemas[s].description}",
+                    key=f"schema_select_{mid}"
+                )
+                schema_def = current_module.schemas[schema_name]
 
-                with c_doc:
+                # بررسی بارگذاری اسناد قبل از عملیات استخراج
+                if not st.session_state.indexed_documents:
+                    st.info("📂 Carica almeno un documento nella colonna di sinistra per abilitare l'estrazione.")
+                else:
                     docs_map = st.session_state.indexed_documents
                     target_doc = st.selectbox(
                         "Documento Sorgente:",
@@ -298,28 +340,28 @@ def render_ui():
                         key=f"doc_target_{mid}"
                     )
 
-                if st.button("🚀 Avvia Estrazione Strutturata", use_container_width=True):
-                    chosen_docs = (
-                        docs_map if target_doc == "ALL ACTIVE DOCUMENTS" else {target_doc: docs_map[target_doc]}
-                    )
-                    pages_by_doc = {name: meta["pages"] for name, meta in chosen_docs.items()}
+                    if st.button("🚀 Avvia Estrazione Strutturata", use_container_width=True):
+                        chosen_docs = (
+                            docs_map if target_doc == "ALL ACTIVE DOCUMENTS" else {target_doc: docs_map[target_doc]}
+                        )
+                        pages_by_doc = {name: meta["pages"] for name, meta in chosen_docs.items()}
 
-                    with st.spinner(f"Estrazione schema '{schema_def.label}' in corso..."):
-                        result = extract_for_documents(pages_by_doc, schema_name, module_id=mid)
-                        
-                        st.session_state.extracted_data.setdefault(mid, {})[schema_name] = result
-                        st.session_state.reviewed_data.setdefault(mid, {}).pop(schema_name, None)
-                        
-                        ver_key = (mid, schema_name)
-                        st.session_state.editor_version[ver_key] = st.session_state.editor_version.get(ver_key, 0) + 1
+                        with st.spinner(f"Estrazione schema '{schema_def.label}' in corso..."):
+                            result = extract_for_documents(pages_by_doc, schema_name, module_id=mid)
+                            
+                            st.session_state.extracted_data.setdefault(mid, {})[schema_name] = result
+                            st.session_state.reviewed_data.setdefault(mid, {}).pop(schema_name, None)
+                            
+                            ver_key = (mid, schema_name)
+                            st.session_state.editor_version[ver_key] = st.session_state.editor_version.get(ver_key, 0) + 1
 
-                        if result.get("errors"):
-                            for err_doc, err_msg in result["errors"].items():
-                                st.warning(f"⚠️ Errore su {err_doc}: {err_msg}")
-                        else:
-                            st.success(f"Estratti {result['total_records']} record con successo!")
+                            if result.get("errors"):
+                                for err_doc, err_msg in result["errors"].items():
+                                    st.warning(f"⚠️ Errore su {err_doc}: {err_msg}")
+                            else:
+                                st.success(f"Estratti {result['total_records']} record con successo!")
 
-                # نمایش جدول بازبینی و ویرایش
+                # نمایش جدول بازبینی و دکمه‌های دانلود گزارش
                 current_res = st.session_state.extracted_data.get(mid, {}).get(schema_name)
                 if current_res and current_res.get("records"):
                     st.markdown(f"### 📋 Revisione Record: `{schema_def.label}`")
@@ -370,7 +412,8 @@ def render_ui():
                             extracted_data_by_schema=payload,
                             source_documents=list(st.session_state.indexed_documents.keys()),
                             company_profile=st.session_state.company_profile,
-                            selected_fields_by_schema=st.session_state.export_fields.get(mid, {})
+                            selected_fields_by_schema=st.session_state.export_fields.get(mid, {}),
+                            module_id=mid
                         )
                         st.download_button(
                             label=f"📊 Scarica Excel Ufficiale ({prefix})",
@@ -385,7 +428,8 @@ def render_ui():
                             extracted_data_by_schema=payload,
                             source_documents=list(st.session_state.indexed_documents.keys()),
                             company_profile=st.session_state.company_profile,
-                            selected_fields_by_schema=st.session_state.export_fields.get(mid, {})
+                            selected_fields_by_schema=st.session_state.export_fields.get(mid, {}),
+                            module_id=mid
                         )
                         st.download_button(
                             label="📄 Scarica Verbale Word Ufficiale (.docx)",
@@ -394,3 +438,71 @@ def render_ui():
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             use_container_width=True
                         )
+
+        # زبانه پایش سررسیدها و هشدارها
+        with tab_deadlines:
+            st.subheader("⏰ Monitoraggio Scadenze e Allerte Automatiche")
+            st.caption("Pianificazione automatica scadenze normative e invio notifiche Email/SMS.")
+
+            from app.alerts.store import ensure_alert_tables, upsert_deadline, get_active_deadlines, add_recipient, get_active_recipients
+            from app.alerts.deadlines import extract_deadlines_from_records
+            from app.alerts.dispatcher import dispatch_alerts
+
+            ensure_alert_tables()
+
+            # دکمه همگام‌سازی سررسیدهای بازبینی‌شده
+            c_btn, c_sim = st.columns([1, 1])
+            with c_btn:
+                if st.button("🔔 Attiva Monitoraggio sui Record Verificati", use_container_width=True):
+                    mid = current_module.module_id
+                    rev_data = st.session_state.reviewed_data.get(mid, {})
+                    synced_count = 0
+                    for s_name, recs in rev_data.items():
+                        extracted_dl = extract_deadlines_from_records(mid, s_name, recs)
+                        for d_item in extracted_dl:
+                            upsert_deadline(
+                                d_item["id"], d_item["module_id"], d_item["schema_name"],
+                                d_item["field_name"], d_item["description"], d_item["due_date"],
+                                d_item["thresholds"], d_item["source_document"], d_item["source_page"]
+                            )
+                            synced_count += 1
+                    if synced_count > 0:
+                        st.success(f"✓ {synced_count} scadenze sincronizzate e attive per il monitoraggio!")
+                    else:
+                        st.info("Nessuna scadenza trovata nei record verificati. Effettua prima l'estrazione.")
+
+            with c_sim:
+                if st.button("🚀 Simula Scansione Notifiche (Dry-run)", use_container_width=True):
+                    res_sim = dispatch_alerts(dry_run=True)
+                    st.info(f"Simulazione completata: Email={res_sim['sent_email']} | SMS={res_sim['sent_sms']} | Saltate={res_sim['skipped']}")
+
+            # نمایش جدول سررسیدهای ذخیره‌شده
+            active_dls = get_active_deadlines()
+            if active_dls:
+                st.markdown("### 📋 Elenco Scadenze Attive nel Database")
+                df_dl = pd.DataFrame(active_dls)[["due_date", "description", "module_id", "source_document", "source_page"]]
+                df_dl.columns = ["Data Scadenza", "Descrizione Obbligo", "Modulo", "Documento", "Pagina"]
+                st.dataframe(df_dl, use_container_width=True)
+            else:
+                st.caption("Nessuna scadenza attualmente monitorata nel database.")
+
+            st.divider()
+            st.markdown("### 📬 Configurazione Destinatari Allerte")
+            c_rec_addr, c_rec_type, c_rec_add = st.columns([2, 1, 1])
+            with c_rec_addr:
+                new_addr = st.text_input("Indirizzo Email o Telefono (+39...):", key="new_alert_addr")
+            with c_rec_type:
+                new_ch = st.selectbox("Canale:", ["email", "sms"], key="new_alert_ch")
+            with c_rec_add:
+                st.write("")
+                st.write("")
+                if st.button("Aggiungi Destinatario", use_container_width=True):
+                    if new_addr:
+                        import uuid
+                        add_recipient(str(uuid.uuid4()), new_ch, new_addr.strip())
+                        st.success("Destinatario aggiunto!")
+                        st.rerun()
+
+            curr_recs = get_active_recipients()
+            if curr_recs:
+                st.write("**Destinatari Attivi:** " + ", ".join([f"`{r['channel'].upper()}: {r['address']}`" for r in curr_recs]))                    
