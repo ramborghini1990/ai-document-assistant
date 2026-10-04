@@ -11,7 +11,12 @@ def retrieve_relevant_chunks(
 ) -> List[Dict[str, Any]]:
     """
     بازیابی معنایی مرتبط‌ترین چانک‌ها با امکان فیلتر کردن دقیق روی اسناد سشن فعال.
+    فیلدهای page_number و document_name هم در سطح ریشه دیکشنری و هم درون metadata
+    قرار داده می‌شوند تا سازگاری کامل حفظ شود.
     """
+    if not query or not query.strip():
+        raise ValueError("Retrieval query cannot be empty.")
+
     collection = get_chroma_collection(collection_name)
     total_count = collection.count()
     if total_count == 0:
@@ -37,7 +42,6 @@ def retrieve_relevant_chunks(
             include=["documents", "metadatas", "distances"]
         )
     except Exception as e:
-        # در صورت نبود تطابق با فیلتر، خطا رخ ندهد و لیست خالی برگردد
         print(f"Warning in retrieval query: {e}")
         return []
 
@@ -48,9 +52,15 @@ def retrieve_relevant_chunks(
         dists = results["distances"][0] if results.get("distances") else [0.0] * len(docs)
 
         for doc_text, meta, dist in zip(docs, metas, dists):
+            safe_meta = meta if isinstance(meta, dict) else {}
+            page_num = safe_meta.get("page_number", "N/A")
+            doc_name = safe_meta.get("document_name", "unknown")
+
             retrieved_chunks.append({
                 "text": doc_text,
-                "metadata": meta,
+                "metadata": safe_meta,
+                "page_number": page_num,
+                "document_name": doc_name,
                 "distance": dist
             })
 

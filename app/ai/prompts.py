@@ -4,15 +4,23 @@ from typing import List, Dict, Any
 def build_rag_prompt(query: str, retrieved_chunks: List[Dict[str, Any]]) -> str:
     """
     ساخت پرامپت مهندسی‌شده RAG با تفکیک دقیق دستورالعمل، زمینه سند، و سوال کاربر.
-    شامل قانون اکید عدم حدس زدن و درج شماره صفحه هر قطعه.
+    شامل قانون اکید عدم حدس زدن و درج شماره صفحه هر قطعه (با خوانش دوگانه ایمن از ریشه و metadata).
     """
     if not retrieved_chunks:
         context_str = "No relevant context found in the uploaded document."
     else:
         context_blocks = []
         for i, chunk in enumerate(retrieved_chunks, 1):
+            meta = chunk.get("metadata", {}) if isinstance(chunk.get("metadata"), dict) else {}
+            page_num = chunk.get("page_number") or meta.get("page_number") or "N/A"
+            doc_name = chunk.get("document_name") or meta.get("document_name")
+
+            header = f"Source {i} | Page: {page_num}"
+            if doc_name and doc_name != "unknown":
+                header += f" | Doc: {doc_name}"
+
             block = (
-                f"[Source {i} | Page: {chunk.get('page_number', 'N/A')}]:\n"
+                f"[{header}]:\n"
                 f"{chunk.get('text', '').strip()}"
             )
             context_blocks.append(block)

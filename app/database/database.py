@@ -1,13 +1,19 @@
+import os
 import sqlite3
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-DB_PATH = "assistant.db"
+DB_PATH = os.getenv("ASSISTANT_DB_PATH", "assistant.db")
+
+
+def get_db_path() -> str:
+    """دریافت پویای مسیر پایگاه داده با اولویت متغیر محیطی ASSISTANT_DB_PATH."""
+    return os.getenv("ASSISTANT_DB_PATH", DB_PATH)
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -37,10 +43,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
+            document_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (document_id) REFERENCES documents(id)
         );
     """)
+
+    # مهاجرت خودکار: افزودن ستون document_id در صورتی که جدول از قبل در دیتابیس قدیمی ساخته شده باشد
+    try:
+        cursor.execute("ALTER TABLE conversations ADD COLUMN document_id TEXT;")
+    except sqlite3.OperationalError:
+        pass  # ستون از قبل وجود دارد
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -148,11 +162,15 @@ def create_document(user_id: str, filename: str) -> str:
     return doc_id
 
 
-def create_conversation(user_id: str) -> str:
+def create_conversation(user_id: str, document_id: Optional[str] = None) -> str:
+    """ایجاد نشست مکالمه با پشتیبانی اختیاری از document_id جهت حفظ سازگاری کامل."""
     conv_id = str(uuid.uuid4())
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO conversations (id, user_id) VALUES (?, ?);", (conv_id, user_id))
+    cursor.execute(
+        "INSERT INTO conversations (id, user_id, document_id) VALUES (?, ?, ?);",
+        (conv_id, user_id, document_id)
+    )
     conn.commit()
     conn.close()
     return conv_id
@@ -162,16 +180,31 @@ def save_message(conversation_id: str, role: str, content: str) -> str:
     msg_id = str(uuid.uuid4())
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?);", (msg_id, conversation_id, role, content))
+    cursor.execute(
+        "INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?);",
+        (msg_id, conversation_id, role, content)
+    )
     conn.commit()
     conn.close()
     return msg_id
 
 
 def get_conversation_history(conversation_id: str) -> List[Dict[str, Any]]:
+    """دریافت تاریخچه پیام‌ها همراه با شناسه یکتای پیام و ترتیب زمانی قطعی."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC;", (conversation_id,))
+    cursor.execute(
+        "SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC, rowid ASC;",
+        (conversation_id,)
+    )
     rows = cursor.fetchall()
     conn.close()
-    return [{"role": r["role"], "content": r["content"], "created_at": r["created_at"]} for r in rows]
+    return [
+        {
+            "id": r["id"],
+            "role": r["role"],
+            "content": r["content"],
+            "created_at": r["created_at"]
+        }
+        for r in rows
+    ]

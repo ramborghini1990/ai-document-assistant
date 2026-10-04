@@ -1,10 +1,28 @@
+import sys
+from pathlib import Path
+
+# ۱. تضمین مسیر ریشه پروژه در sys.path برای اجرای ماژولار و مستقیم
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List
+
 from app.ui.theme import inject_custom_css, render_kpi_row
-from app.alerts.store import get_active_deadlines
+from app.alerts.store import (
+    ensure_alert_tables,
+    upsert_deadline,
+    get_active_deadlines,
+    add_recipient,
+    get_active_recipients
+)
 from app.alerts.scanner import scan_deadlines
+from app.alerts.deadlines import extract_deadlines_from_records
+from app.alerts.dispatcher import dispatch_alerts
+
 from app.ai.gemini import generate_answer
 from app.ai.prompts import build_rag_prompt
 from app.rag.loader import load_document_content
@@ -36,8 +54,9 @@ from app.database.database import (
 
 
 def initialize_session():
-    """مقداردهی اولیه پایگاه داده و نشست کاربر با معماری ماژولار."""
+    """مقداردهی اولیه دیتابیس و وضعیت نشست کاربر بدون پاک‌سازی وکتورهای سایر نشست‌ها."""
     init_db()
+    ensure_alert_tables()
 
     if "user_id" not in st.session_state:
         st.session_state.user_id = create_user()
@@ -47,12 +66,10 @@ def initialize_session():
 
     if "indexed_documents" not in st.session_state:
         st.session_state.indexed_documents = {}
-        clear_chroma_collection()
 
     if "processing_errors" not in st.session_state:
         st.session_state.processing_errors = {}
 
-    # ساختار تفکیک‌شده داده‌ها بر اساس module_id
     all_mods = list_modules()
     st.session_state.setdefault("active_module", all_mods[0].module_id if all_mods else "iso_14001")
     st.session_state.setdefault("extracted_data", {})     # {module_id: {schema: result}}
@@ -70,7 +87,7 @@ def reset_conversation():
 
 
 def process_single_document(file) -> int:
-    """خط لوله پردازش چندفرمت همراه با نگهداری متن صفحات جهت استخراج."""
+    """خط لوله استخراج و ایندکس با تضمین پاک‌سازی چانک‌های تکراری پیشین همان فایل."""
     pages = load_document_content(file, file.name)
     if not pages:
         raise ValueError("No readable text could be extracted from document.")
@@ -84,6 +101,9 @@ def process_single_document(file) -> int:
 
     chunk_texts = [c["text"] for c in chunks]
     embeddings = get_batch_embeddings(chunk_texts)
+
+    # جلوگیری از افزونگی چانک‌ها هنگام پردازش مجدد
+    remove_document_from_chromadb(file.name, collection_name="document_chunks")
     store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
     doc_id = create_document(st.session_state.user_id, file.name)
 
@@ -101,7 +121,7 @@ def process_single_document(file) -> int:
 
 
 def build_export_payload(mid: str) -> Dict[str, Any]:
-    """آماده‌سازی پکیج خروجی که ویرایش‌های انسانی را در اولویت قرار می‌دهد."""
+    """آماده‌سازی پکیج اکسپورت با اولویت‌دهی به بازبینی‌های انسانی."""
     out = {}
     mod_data = st.session_state.extracted_data.get(mid, {})
     for s_name, res in mod_data.items():
@@ -122,11 +142,10 @@ def render_ui():
     initialize_session()
     total_chunks = sum(doc["chunks"] for doc in st.session_state.indexed_documents.values())
 
-    # نوار کناری (Sidebar)
+    # نوار کناری
     with st.sidebar:
         st.header("⚙️ Workspace & Standards")
 
-        # انتخابگر ماژول استاندارد (Module Switcher)
         available_mods = {m.module_id: m for m in list_modules()}
         selected_mod_id = st.selectbox(
             "🧩 Modulo / Standard Operativo:",
@@ -139,7 +158,6 @@ def render_ui():
         st.caption(f"**Versione Standard:** `{current_module.version}`")
         st.divider()
 
-        # تنظیمات مشخصات شرکت
         with st.expander("🏢 Profilo Aziendale / Tenant", expanded=False):
             prof = st.session_state.company_profile
             c_name = st.text_input("Ragione Sociale:", value=prof.get("company_name", ""))
@@ -167,22 +185,30 @@ def render_ui():
             reset_conversation()
             st.rerun()
 
+        with st.expander("🛠 Manutenzione Vettoriale", expanded=False):
+            st.caption("Elimina l'intero indice ChromaDB persistente su disco.")
+            if st.button("🗑️ Reset Totale Indice Vettoriale", use_container_width=True):
+                clear_chroma_collection()
+                st.session_state.indexed_documents.clear()
+                reset_conversation()
+                st.session_state.extracted_data.clear()
+                st.session_state.reviewed_data.clear()
+                st.success("Indice vettoriale azzerato!")
+                st.rerun()
+
     active_comp = st.session_state.company_profile.get("company_name", "Azienda")
     st.title(f"📋 {current_module.label}")
     st.caption(f"Enterprise Document Intelligence — Multi-Tenant Platform | {active_comp}")
 
-    # محاسبه آمار زنده برای کارت‌های KPI
+    # آمار کارت‌های KPI
     mid = current_module.module_id
     total_docs = len(st.session_state.indexed_documents)
-    total_chunks = sum(doc["chunks"] for doc in st.session_state.indexed_documents.values())
 
-    # شمارش رکوردهای استخراج‌شده ماژول فعال
     mod_records = sum(
         len(st.session_state.reviewed_data.get(mid, {}).get(s, res.get("records", [])))
         for s, res in st.session_state.extracted_data.get(mid, {}).items()
     )
 
-    # بررسی سررسیدهای ۳۰ روز آینده
     try:
         active_deadlines = get_active_deadlines()
         urgent_alerts = scan_deadlines(active_deadlines, max_overdue_days=30)
@@ -192,7 +218,6 @@ def render_ui():
         urgent_count = 0
         urgent_level = ""
 
-    # نمایش کارت‌های مدرن KPI بالای صفحه
     kpi_items = [
         ("Documenti Attivi", total_docs, "Knowledge Base", ""),
         ("Chunk Vettoriali", total_chunks, "ChromaDB Indice", ""),
@@ -203,7 +228,6 @@ def render_ui():
 
     col_ingest, col_workspace = st.columns([1, 1.2], gap="large")
 
-    # ستون اول: بارگذاری اسناد
     with col_ingest:
         st.subheader("1. Ingestion Pipeline")
         uploaded_files = st.file_uploader(
@@ -215,25 +239,19 @@ def render_ui():
 
         current_filenames = [f.name for f in uploaded_files] if uploaded_files else []
 
-        # --- همگام‌سازی خودکار: تشخیص و حذف اسنادی که کاربر حذف کرده است ---
         indexed_names = list(st.session_state.indexed_documents.keys())
         for existing_name in indexed_names:
             if existing_name not in current_filenames:
-                # حذف چانک‌های سند حذف‌شده از ChromaDB
                 remove_document_from_chromadb(existing_name)
-                # حذف از حافظه وضعیت اسناد
                 del st.session_state.indexed_documents[existing_name]
                 st.session_state.processing_errors.pop(existing_name, None)
 
-        # اگر کاربر همه فایل‌ها را حذف کرد، کل حافظه چت و وکتورها خودکار صفر شود
         if not current_filenames and indexed_names:
-            clear_chroma_collection()
             reset_conversation()
             st.session_state.extracted_data.clear()
             st.session_state.reviewed_data.clear()
             st.rerun()
 
-        # پردازش اسناد جدیدی که هنوز ایندکس نشده‌اند
         if uploaded_files:
             files_to_process = [
                 f for f in uploaded_files 
@@ -264,15 +282,13 @@ def render_ui():
             for fname, err in st.session_state.processing_errors.items():
                 st.markdown(f"- ⚠️ **{fname}**: {err}")
 
-    # ستون دوم: چت و استخراج ساختاریافته
     with col_workspace:
         tab_chat, tab_extraction, tab_deadlines = st.tabs([
-    "💬 Document Chat (RAG)", 
-    "📊 Structured Extraction & Review", 
-    "⏰ Scadenze & Monitoraggio"
-])
+            "💬 Document Chat (RAG)", 
+            "📊 Structured Extraction & Review", 
+            "⏰ Scadenze & Monitoraggio"
+        ])
 
-        # زبانه چت
         with tab_chat:
             st.caption("Interroga semanticamente tutti i documenti attivi.")
             history = get_conversation_history(st.session_state.conversation_id)
@@ -286,8 +302,13 @@ def render_ui():
                         st.markdown(msg["content"])
 
             with st.expander("⚙️ Parametri Avanzati di Ricerca (Opzionale)", expanded=False):
-                top_k = st.slider("Profondità di contesto (Top-K Chunks):", min_value=1, max_value=8, value=4,
-                      help="Numero di frammenti di testo più rilevanti inviati al modello per la risposta.")
+                top_k = st.slider(
+                    "Profondità di contesto (Top-K Chunks):",
+                    min_value=1,
+                    max_value=8,
+                    value=4,
+                    help="Numero di frammenti di testo più rilevanti inviati al modello per la risposta."
+                )
             user_query = st.chat_input("Fai una domanda sui documenti...")
 
             if user_query:
@@ -311,12 +332,10 @@ def render_ui():
                         except Exception as e:
                             st.error(f"⚠️ {str(e)}")
 
-        # زبانه استخراج و بازبینی انسانی
         with tab_extraction:
             mid = current_module.module_id
             st.caption(f"Estrazione mirata per: **{current_module.label}**")
 
-            # انتخاب اسکیما همیشه در دسترس است تا خطا رخ ندهد
             schema_names = list(current_module.schemas.keys())
             if not schema_names:
                 st.warning("Nessuno schema disponibile per questo modulo.")
@@ -329,7 +348,6 @@ def render_ui():
                 )
                 schema_def = current_module.schemas[schema_name]
 
-                # بررسی بارگذاری اسناد قبل از عملیات استخراج
                 if not st.session_state.indexed_documents:
                     st.info("📂 Carica almeno un documento nella colonna di sinistra per abilitare l'estrazione.")
                 else:
@@ -361,7 +379,6 @@ def render_ui():
                             else:
                                 st.success(f"Estratti {result['total_records']} record con successo!")
 
-                # نمایش جدول بازبینی و دکمه‌های دانلود گزارش
                 current_res = st.session_state.extracted_data.get(mid, {}).get(schema_name)
                 if current_res and current_res.get("records"):
                     st.markdown(f"### 📋 Revisione Record: `{schema_def.label}`")
@@ -380,17 +397,14 @@ def render_ui():
                         disabled=["source_document", "source_page"]
                     )
 
-                    # ذخیره تغییرات انسانی در reviewed_data
                     reviewed_records = dataframe_to_records(edited_df, initial_records, schema_def)
                     st.session_state.reviewed_data.setdefault(mid, {})[schema_name] = reviewed_records
 
                     st.caption(f"✓ Record verificati: `{len(reviewed_records)}` | Modulo attivo: `{current_module.label}`")
 
-                    # بخش خروجی‌های رسمی
                     st.divider()
                     st.subheader("📥 Genera Report Ufficiali")
                     
-                    # فیلتر داینامیک ستون‌ها
                     all_schema_fields = schema_def.ordered_field_names()
                     schema_labels = schema_def.all_labels()
                     
@@ -439,18 +453,10 @@ def render_ui():
                             use_container_width=True
                         )
 
-        # زبانه پایش سررسیدها و هشدارها
         with tab_deadlines:
             st.subheader("⏰ Monitoraggio Scadenze e Allerte Automatiche")
             st.caption("Pianificazione automatica scadenze normative e invio notifiche Email/SMS.")
 
-            from app.alerts.store import ensure_alert_tables, upsert_deadline, get_active_deadlines, add_recipient, get_active_recipients
-            from app.alerts.deadlines import extract_deadlines_from_records
-            from app.alerts.dispatcher import dispatch_alerts
-
-            ensure_alert_tables()
-
-            # دکمه همگام‌سازی سررسیدهای بازبینی‌شده
             c_btn, c_sim = st.columns([1, 1])
             with c_btn:
                 if st.button("🔔 Attiva Monitoraggio sui Record Verificati", use_container_width=True):
@@ -476,7 +482,6 @@ def render_ui():
                     res_sim = dispatch_alerts(dry_run=True)
                     st.info(f"Simulazione completata: Email={res_sim['sent_email']} | SMS={res_sim['sent_sms']} | Saltate={res_sim['skipped']}")
 
-            # نمایش جدول سررسیدهای ذخیره‌شده
             active_dls = get_active_deadlines()
             if active_dls:
                 st.markdown("### 📋 Elenco Scadenze Attive nel Database")
@@ -505,4 +510,9 @@ def render_ui():
 
             curr_recs = get_active_recipients()
             if curr_recs:
-                st.write("**Destinatari Attivi:** " + ", ".join([f"`{r['channel'].upper()}: {r['address']}`" for r in curr_recs]))                    
+                st.write("**Destinatari Attivi:** " + ", ".join([f"`{r['channel'].upper()}: {r['address']}`" for r in curr_recs]))
+
+
+# فراخوانی صریح در صورت اجرای مستقیم فایل به عنوان اسکریپت Streamlit
+if __name__ == "__main__":
+    render_ui()
