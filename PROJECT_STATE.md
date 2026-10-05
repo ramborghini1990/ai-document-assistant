@@ -1,14 +1,14 @@
-# Project State Tracking — Modular Platform Architecture (v2.3)
+# Project State Tracking — Modular Platform Architecture (v2.4)
 
 ## Current Status
-- **Current Milestone:** Step 5 (Dynamic Registry & Math Extensibility) & Step 6 (Central Configuration & Hot Reload) Completed 🟢
+- **Current Milestone:** Step 7 Completed (Pytest Standardization, Robust Spreadsheet Parsing & Dynamic Tenant State) 🟢
 - **System Architecture:** Modular Multi-Tenant Document Intelligence Platform
 - **Stability Status:** 100% Operational, Zero-Hallucination Verified, Fully Backward Compatible.
-- **Test Suite Status:** 6/6 Offline Test Suites Passing (100% Green).
+- **Test Suite Status:** 12/12 Automated Pytest Suites Passing (100% Green).
 
 ---
 
-## Completed Milestones (v2.3 Platform Evolution):
+## Completed Milestones (v2.4 Platform Evolution):
 
 ### Phase 0–27 (Baseline MVP & Multimodal Core)
 - پیاده‌سازی پایپ‌لاین RAG بدون فریم‌ورک‌های واسط (Framework-Free) با پایتون خالص، Google GenAI، ChromaDB و SQLite.
@@ -32,7 +32,7 @@
 
 ### Step 4 — Deadline Alerts Engine & Monitoring
 - راه‌اندازی موتور قطعی استخراج سررسیدهای قانونی و ممیزی (`app/alerts/deadlines.py`) با شناسه‌های یکتای UUID5.
-- موتور اسکن زمان‌بندی‌شده و دسته‌بندی آستانه‌های بحرانی (`app/alerts/scanner.py`) بر اساس روزهای باقی‌‌مانده.
+- موتور اسکن زمان‌بندی‌شده و دسته‌بندی آستانه‌های بحرانی (`app/alerts/scanner.py`) بر اساس روزهای باقی‌مانده.
 - لایه پایداری SQLite (`app/alerts/store.py`) با سازوکار ضدهرزنامه و جلوگیری از ارسال تکراری (Deduplication).
 - دیسپچر اعلان‌ها و کلاینت‌های استاندارد SMTP Email و Twilio SMS (`app/alerts/dispatcher.py`, `app/alerts/notifiers.py`).
 - اضافه شدن تب «⏰ Scadenze & Monitoraggio» در UI و نقطه ورود CLI مستقل `app/alerts/run.py`.
@@ -49,9 +49,15 @@
 - تعبیه دکمه بازخوانی زنده اسکیماها (`🔄 Ricarica Schemi (Hot Reload)`) در سایدبار رابط کاربری بدون نیاز به راه‌اندازی مجدد Streamlit.
 - یکپارچه‌سازی کامل مسیر دیتابیس SQLite در تمام ماژول‌ها از طریق `get_db_path()`.
 
+### Step 7 — Pytest Suite, Robust Excel Parsing & Dynamic Tenant Profile
+- یکپارچه‌سازی تمامی آزمون‌های مستقل در قالب فریم‌ورک استاندارد `pytest` تحت پوشه `tests/` همراه با فیکسچر ایزوله‌سازی خودکار دیتابیس (`conftest.py`).
+- پیاده‌سازی موتور هوشمند تشخیص سربرگ اکسل (`_parse_excel_sheet`) و یکتاسازی نام ستون‌های تکراری جهت جلوگیری از خطای `Series is ambiguous`.
+- خوانش سطرهای اکسل با اندیس موقعیتی `.iloc` جهت تضمین دریافت مقادیر اسکالر.
+- حذف کامل اطلاعات هاردکدشده شرکتی؛ شروع هر نشست با فیلدهای کاملاً خالی و ذخیره‌سازی پویا در گزارش‌های خروجی اکسل و ورد.
+
 ---
 
 ## Next Milestone:
-- **Step 7 — Test Suite Standardization & Real Document Telemetry:**
-  - یکپارچه‌سازی آزمون‌های مستقل پروژه در قالب فریم‌ورک استاندارد Pytest و خودکارسازی اجرای تست‌ها.
-  - تست خط لوله با یک فایل واقعی چندصفحه‌ای جهت پایش میزان مصرف توکن، زمان پاسخ و کیفیت استخراج نهایی.
+- **Step 8 — Multi-Tenant Multi-User Authentication & Production Readiness:**
+  - بررسی افزودن سیستم احراز هویت اولیه برای جداسازی سشن کاربران سازمانی.
+  - آماده‌سازی مخزن گیت‌هاب جهت ارائه و مستندسازی عمومی (Final README Architecture Diagram).
