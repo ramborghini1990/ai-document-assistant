@@ -1,6 +1,6 @@
 import io
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import pandas as pd
 from pypdf import PdfReader
 from docx import Document as DocxDocument
@@ -160,62 +160,61 @@ def extract_text_from_image(file_stream, filename: str) -> List[Dict[str, Any]]:
     return [{"page_number": 1, "text": text, "is_scanned": True}]
 
 
-def _clean_excel_dataframe(df_raw: pd.DataFrame) -> pd.DataFrame:
+def _parse_excel_sheet(df_raw: pd.DataFrame) -> Tuple[List[str], pd.DataFrame]:
     """
-    تشخیص هوشمند سطر سربرگ (Header) در فایل‌های اکسل و حذف ستون‌های Unnamed یا ناشناخته.
+    تشخیص هوشمند سطر سربرگ، یکتاسازی نام ستون‌ها و جداسازی سطرهای داده بدون خطا.
     """
     df_raw = df_raw.dropna(how="all").dropna(axis=1, how="all")
     if df_raw.empty:
-        return df_raw
+        return [], pd.DataFrame()
 
-    # در صورتی که فایل فقط ۱ سطر داشته باشد
-    if len(df_raw) == 1:
-        cols = [
-            f"Colonna_{i+1}" if (pd.isna(v) or not str(v).strip() or str(v).lower().startswith("unnamed")) 
-            else str(v).strip() 
-            for i, v in enumerate(df_raw.iloc[0])
-        ]
-        return pd.DataFrame(columns=cols)
-
-    # پیمایش ۱۰ سطر اول برای پیدا کردن سطری که حاوی اسامی واقعی ستون‌هاست
     best_header_idx = 0
-    max_string_count = -1
+    max_score = -1
 
+    # بررسی ۱۰ سطر اول شیت برای یافتن سطری که بیشترین عناوین متنی ستون را دارد
     for r_idx in range(min(10, len(df_raw))):
         row_vals = df_raw.iloc[r_idx]
         non_nulls = row_vals.dropna()
         if non_nulls.empty:
             continue
 
-        # شمارش خانه‌هایی که رشته متنی معنادار هستند (نه صرفاً ارقام عددی)
         string_cells = [
-            str(v).strip() for v in non_nulls 
-            if isinstance(v, str) and not v.strip().replace(".", "").replace(",", "").isdigit()
+            str(v).strip() for v in non_nulls
+            if isinstance(v, str) and not v.strip().replace(".", "").replace(",", "").replace("-", "").isdigit()
         ]
         score = len(string_cells)
 
-        if score > max_string_count and len(non_nulls) >= 2:
-            max_string_count = score
+        if score > max_score and len(non_nulls) >= 2:
+            max_score = score
             best_header_idx = r_idx
 
-    raw_headers = df_raw.iloc[best_header_idx]
-    data_rows = df_raw.iloc[best_header_idx + 1:].copy()
+    raw_headers = df_raw.iloc[best_header_idx].tolist()
+    data_df = df_raw.iloc[best_header_idx + 1:].copy()
 
-    clean_columns = []
+    # ساخت نام‌های تمیز و کاملاً یکتا برای ستون‌ها (جلوگیری از خطای ستون‌های تکراری)
+    seen_names: Dict[str, int] = {}
+    clean_columns: List[str] = []
+
     for i, val in enumerate(raw_headers):
         val_str = str(val).strip() if pd.notna(val) else ""
-        if not val_str or val_str.lower().startswith("unnamed") or val_str.lower() == "nan":
-            clean_columns.append(f"Colonna_{i+1}")
+        if not val_str or val_str.lower() in ("nan", "none") or val_str.lower().startswith("unnamed"):
+            base_name = f"Colonna_{i+1}"
         else:
-            clean_columns.append(val_str)
+            base_name = val_str
 
-    data_rows.columns = clean_columns
-    return data_rows.dropna(how="all")
+        if base_name in seen_names:
+            seen_names[base_name] += 1
+            clean_columns.append(f"{base_name}_{seen_names[base_name]}")
+        else:
+            seen_names[base_name] = 1
+            clean_columns.append(base_name)
+
+    return clean_columns, data_df
 
 
 def extract_text_from_excel(file_stream, filename: str) -> List[Dict[str, Any]]:
     """
-    استخراج ساختاریافته داده‌های شیت‌ها با تشخیص خودکار سربرگ واقعی و جلوگیری از ایجاد ستون‌های Unnamed.
+    استخراج ساختاریافته داده‌های شیت‌ها با دسترسی قطعی و امن به مقادیر سلول‌ها.
     """
     if not file_stream:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
@@ -231,31 +230,37 @@ def extract_text_from_excel(file_stream, filename: str) -> List[Dict[str, Any]]:
     for idx, sheet_name in enumerate(xls.sheet_names):
         page_num = idx + 1
         try:
-            # بارگذاری به صورت خام و تشخیص هوشمند هدر
             df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-            df = _clean_excel_dataframe(df_raw)
+            clean_columns, data_df = _parse_excel_sheet(df_raw)
         except Exception:
             continue
 
-        if df.empty or len(df.columns) == 0:
+        if data_df.empty or not clean_columns:
             continue
 
         lines = [f"=== FOGLIO EXCEL: {sheet_name} (Pagina {page_num}) ==="]
-        columns = [str(c).strip() for c in df.columns]
-        lines.append(f"Colonne: {' | '.join(columns)}")
+        lines.append(f"Colonne: {' | '.join(clean_columns)}")
 
-        for r_idx, (_, row) in enumerate(df.iterrows()):
+        # پیمایش امن سطرها با استفاده از iloc جهت تضمین دریافت مقدار اسکالر و جلوگیری از خطای Series
+        for r_idx in range(len(data_df)):
             row_items = []
-            for col in df.columns:
-                val = row[col]
-                if pd.notna(val) and str(val).strip():
-                    if isinstance(val, pd.Timestamp):
-                        val_str = val.strftime('%Y-%m-%d')
-                    elif isinstance(val, float) and val.is_integer():
-                        val_str = str(int(val))
-                    else:
-                        val_str = str(val).strip()
-                    row_items.append(f"{col}: {val_str}")
+            row_vals = data_df.iloc[r_idx]
+
+            for c_idx, col_name in enumerate(clean_columns):
+                if c_idx >= len(row_vals):
+                    continue
+
+                val = row_vals.iloc[c_idx]
+                # اطمینان از مقدار معتبر و غیرخالی
+                if pd.notna(val):
+                    val_str = str(val).strip()
+                    if val_str and val_str.lower() not in ("nan", "none", "nat"):
+                        if isinstance(val, pd.Timestamp):
+                            val_str = val.strftime('%Y-%m-%d')
+                        elif isinstance(val, float) and val.is_integer():
+                            val_str = str(int(val))
+                        row_items.append(f"{col_name}: {val_str}")
+
             if row_items:
                 lines.append(f"Riga {r_idx + 1}: " + " | ".join(row_items))
 
