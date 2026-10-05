@@ -1,21 +1,16 @@
 import uuid
 from typing import List, Dict, Any
+from app.config import RAG_CHUNK_SIZE, RAG_CHUNK_OVERLAP
 
 
 def split_text_into_chunks(
     pages_data: List[Dict[str, Any]],
     document_name: str,
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200,
+    chunk_size: int = RAG_CHUNK_SIZE,
+    chunk_overlap: int = RAG_CHUNK_OVERLAP,
 ) -> List[Dict[str, Any]]:
     """
-    تقسیم صفحات سند به قطعات کوچک‌تر (Chunks) با قابلیت همپوشانی و حفظ متادیتا.
-    
-    پارامترها:
-    - pages_data: خروجی استخراج فاز ۳ شامل شماره صفحه و متن
-    - document_name: نام فایل PDF
-    - chunk_size: حداکثر تعداد کاراکتر در هر تکه (پیش‌فرض: ۱۰۰۰)
-    - chunk_overlap: میزان اشتراک کاراکتر میان دو تکه مجاور (پیش‌فرض: ۲۰۰)
+    تقسیم صفحات سند به قطعات کوچک‌تر (Chunks) بر اساس تنظیمات مرکزی.
     """
     if chunk_size <= chunk_overlap:
         raise ValueError("chunk_size must be strictly greater than chunk_overlap.")
@@ -30,7 +25,6 @@ def split_text_into_chunks(
         if not text:
             continue
 
-        # اگر متن صفحه از حداقل سایز کمتر باشد، مستقیماً یک تکه می‌شود
         if len(text) <= chunk_size:
             chunks.append({
                 "chunk_id": str(uuid.uuid4()),
@@ -41,7 +35,6 @@ def split_text_into_chunks(
             })
             continue
 
-        # تقسیم پنجره‌ای با همپوشانی
         start = 0
         while start < len(text):
             end = start + chunk_size

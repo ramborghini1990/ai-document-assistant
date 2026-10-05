@@ -1,5 +1,7 @@
 import sys
 from pathlib import Path
+from app.extraction.registry import list_modules, get_module, reload_registry
+from app.config import RAG_TOP_K
 
 # ۱. تضمین مسیر ریشه پروژه در sys.path برای اجرای ماژولار و مستقیم
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -180,6 +182,13 @@ def render_ui():
             for fname, meta in st.session_state.indexed_documents.items():
                 st.caption(f"✓ **{fname}** ({meta['chunks']} chunks)")
 
+        # در بخش سایدبار دقیقاً بعد از st.caption(f"**Versione Standard:** `{current_module.version}`"):
+        if st.button("🔄 Ricarica Schemi (Hot Reload)", use_container_width=True, help="Ricarica i file JSON da schemas/ senza riavviare Streamlit"):
+            reload_registry()
+            st.success("Schemi e moduli aggiornati da disco!")
+            st.rerun()
+        st.divider()
+        
         st.divider()
         if st.button("🔄 Nuova Sessione Chat", use_container_width=True):
             reset_conversation()
@@ -199,6 +208,7 @@ def render_ui():
     active_comp = st.session_state.company_profile.get("company_name", "Azienda")
     st.title(f"📋 {current_module.label}")
     st.caption(f"Enterprise Document Intelligence — Multi-Tenant Platform | {active_comp}")
+
 
     # آمار کارت‌های KPI
     mid = current_module.module_id

@@ -7,11 +7,12 @@ from typing import Any, Dict, List, Optional
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
 FIELD_TYPES = {"string", "date", "number", "plate"}
-COMPUTE_OPS = {"ratio"}
+COMPUTE_OPS = {"ratio", "sum", "diff", "product"}
 DEFAULT_SYSTEM_PROMPT = (
     "You are a precise document data extraction engine. Extract structured entities with absolute "
     "fidelity to the source text. Never invent values. If a field is not present, return null."
 )
+DEFAULT_EXTRACTION_MODEL = "gemini-3.6-flash"
 
 
 @dataclass
@@ -29,7 +30,7 @@ class ComputedDef:
     name: str
     op: str
     inputs: List[str]
-    label: str
+    label: str = ""
     scale: float = 1.0
     decimals: int = 2
     unit: str = ""
@@ -65,6 +66,7 @@ class ModuleDef:
     system_prompt: str
     report: Dict[str, Any]
     schemas: Dict[str, SchemaDef]
+    model: str = DEFAULT_EXTRACTION_MODEL
 
 
 def _parse_schema(module_id: str, name: str, raw: Dict[str, Any], src: str) -> SchemaDef:
@@ -93,8 +95,16 @@ def _parse_schema(module_id: str, name: str, raw: Dict[str, Any], src: str) -> S
         op, inputs = cr.get("op"), cr.get("inputs", [])
         if op not in COMPUTE_OPS or cname in fields:
             raise ValueError(f"{src}: {name}.{cname}: invalid op or name clash")
-        if len(inputs) != 2 or any(i not in fields or fields[i].type != "number" for i in inputs):
-            raise ValueError(f"{src}: {name}.{cname}: inputs must be 2 existing number fields")
+
+        min_inputs = 2
+        if op in ("ratio", "diff") and len(inputs) != 2:
+            raise ValueError(f"{src}: {name}.{cname}: op '{op}' requires exactly 2 inputs")
+        if op in ("sum", "product") and len(inputs) < min_inputs:
+            raise ValueError(f"{src}: {name}.{cname}: op '{op}' requires at least {min_inputs} inputs")
+
+        if any(i not in fields or fields[i].type != "number" for i in inputs):
+            raise ValueError(f"{src}: {name}.{cname}: all inputs must be existing number fields")
+
         computed[cname] = ComputedDef(cname, op, inputs, cr.get("label") or cname,
                                       float(cr.get("scale", 1)), int(cr.get("decimals", 2)), cr.get("unit", ""))
 
@@ -110,14 +120,26 @@ def load_registry() -> Dict[str, ModuleDef]:
         if mid in modules:
             raise ValueError(f"{path.name}: duplicate module_id '{mid}'")
         schemas = {n: _parse_schema(mid, n, sr, path.name) for n, sr in (raw.get("schemas") or {}).items()}
+        
+        extraction_cfg = raw.get("extraction") or {}
         modules[mid] = ModuleDef(
-            mid, raw.get("label", mid), raw.get("version", "0"),
-            (raw.get("extraction") or {}).get("system_prompt") or DEFAULT_SYSTEM_PROMPT,
-            raw.get("report") or {}, schemas,
+            mid,
+            raw.get("label", mid),
+            raw.get("version", "0"),
+            extraction_cfg.get("system_prompt") or DEFAULT_SYSTEM_PROMPT,
+            raw.get("report") or {},
+            schemas,
+            extraction_cfg.get("model") or DEFAULT_EXTRACTION_MODEL
         )
     if not modules:
         raise RuntimeError(f"No schema modules found in {SCHEMAS_DIR}")
     return modules
+
+
+def reload_registry() -> Dict[str, ModuleDef]:
+    """پاک‌سازی کش لودر و بارگذاری مجدد فایل‌های اسکیما از دیسک."""
+    load_registry.cache_clear()
+    return load_registry()
 
 
 def list_modules() -> List[ModuleDef]:

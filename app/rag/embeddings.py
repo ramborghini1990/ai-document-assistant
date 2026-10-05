@@ -2,9 +2,10 @@ from typing import List
 from google import genai
 from google.genai.errors import APIError
 from app.ai.gemini import get_api_keys
+from app.config import GEMINI_EMBEDDING_MODEL
 
 
-def get_text_embedding(text: str, model: str = "gemini-embedding-001") -> List[float]:
+def get_text_embedding(text: str, model: str = GEMINI_EMBEDDING_MODEL) -> List[float]:
     if not text or not text.strip():
         raise ValueError("Text cannot be empty for embedding generation.")
 
@@ -32,7 +33,7 @@ def get_text_embedding(text: str, model: str = "gemini-embedding-001") -> List[f
     raise RuntimeError(f"All API keys rate-limited during embedding. Last error: {last_error}")
 
 
-def get_batch_embeddings(texts: List[str], model: str = "gemini-embedding-001") -> List[List[float]]:
+def get_batch_embeddings(texts: List[str], model: str = GEMINI_EMBEDDING_MODEL) -> List[List[float]]:
     if not texts:
         return []
 

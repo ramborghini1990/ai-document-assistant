@@ -2,13 +2,14 @@
 import os
 import sqlite3
 import json
+from app.config import get_db_path
 from typing import Dict, List, Optional, Any
 
 DB_PATH = os.getenv("ASSISTANT_DB_PATH", "assistant.db")
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 

@@ -1,8 +1,8 @@
-"""Pure logic scanner: evaluates deadlines against current date and threshold days."""
 import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Dict, Iterable, List, Optional, Any
+from app.config import ALERT_MAX_OVERDUE_DAYS
 
 OVERDUE = -1
 
@@ -19,9 +19,7 @@ class Alert:
 
 
 def classify(days_left: int, thresholds: Iterable[int]) -> Optional[int]:
-    """
-    تعیین دقیق‌ترین آستانه قطع‌شده (مانع از ارسال هم‌زمان هشدارهای ۳۰، ۱۵ و ۷ روز می‌شود).
-    """
+    """تعیین دقیق‌ترین آستانه قطع‌شده."""
     if days_left < 0:
         return OVERDUE
     crossed = [t for t in thresholds if days_left <= t]
@@ -31,11 +29,9 @@ def classify(days_left: int, thresholds: Iterable[int]) -> Optional[int]:
 def scan_deadlines(
     deadlines: List[Dict[str, Any]],
     today: Optional[date] = None,
-    max_overdue_days: int = 30
+    max_overdue_days: int = ALERT_MAX_OVERDUE_DAYS
 ) -> List[Alert]:
-    """
-    اسکن سررسیدها و تولید لیست هشدارهای فعال به ترتیب اولویت زمانی.
-    """
+    """اسکن سررسیدها و تولید لیست هشدارهای فعال به ترتیب اولویت زمانی."""
     today = today or date.today()
     alerts = []
 
@@ -43,7 +39,6 @@ def scan_deadlines(
         due = date.fromisoformat(d["due_date"])
         days_left = (due - today).days
 
-        # هشدارهای خیلی قدیمی (بیش از ۳۰ روز قبل) اسپم نشوند
         if days_left < -max_overdue_days:
             continue
 

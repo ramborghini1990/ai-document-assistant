@@ -2,16 +2,19 @@ import os
 import re
 import time
 import warnings
-from typing import List, Any
+from typing import List, Any, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
 
+from app.config import GEMINI_MODEL
+
 warnings.filterwarnings("ignore")
 load_dotenv()
 
-MODEL_NAME = "gemini-3.6-flash"
+# حفظ متغیر MODEL_NAME برای جلوگیری از شکست ایمپورت‌های سایر ماژول‌ها
+MODEL_NAME = GEMINI_MODEL
 
 
 def get_api_keys() -> List[str]:
@@ -60,11 +63,17 @@ def generate_answer(prompt: str) -> str:
     raise RuntimeError(f"All API keys are currently rate-limited or unavailable. Details: {last_error}")
 
 
-def generate_structured_json(prompt: str, system_instruction: str = "", max_attempts: int = 4) -> str:
-    """تولید خروجی ساختاریافته JSON با شکیبایی تطبیقی تا بازنشانی پنجره سهمیه گوگل."""
+def generate_structured_json(
+    prompt: str,
+    system_instruction: str = "",
+    max_attempts: int = 4,
+    model: Optional[str] = None
+) -> str:
+    """تولید خروجی ساختاریافته JSON با شکیبایی تطبیقی و پشتیبانی از مدل سفارشی ماژول."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
 
+    target_model = model or MODEL_NAME
     keys = get_api_keys()
     last_error = ""
 
@@ -78,7 +87,7 @@ def generate_structured_json(prompt: str, system_instruction: str = "", max_atte
             try:
                 client = genai.Client(api_key=key)
                 response = client.models.generate_content(
-                    model=MODEL_NAME,
+                    model=target_model,
                     contents=prompt,
                     config=config,
                 )
@@ -94,7 +103,6 @@ def generate_structured_json(prompt: str, system_instruction: str = "", max_atte
             except Exception as e:
                 raise RuntimeError(f"Unexpected error during structured generation: {str(e)}")
 
-        # در صورت پر بودن سهمیه تمام کلیدها، خواندن دقیق ثانیه اعلامی گوگل و شکیبایی هوشمند
         if attempt < max_attempts - 1:
             wait_match = re.search(r"retry in ([\d\.]+)s", last_error, re.IGNORECASE)
             delay = int(float(wait_match.group(1))) + 2 if wait_match else 25

@@ -3,6 +3,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from app.config import get_db_path
 
 DB_PATH = os.getenv("ASSISTANT_DB_PATH", "assistant.db")
 

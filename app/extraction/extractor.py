@@ -115,7 +115,8 @@ def extract_structured_data(pages: List[Dict[str, Any]], schema_name: str = "sca
 
     raw_json = generate_structured_json(
         _build_prompt(schema, pages, source_document or "n/a"),
-        system_instruction=module.system_prompt
+        system_instruction=module.system_prompt,
+        model=getattr(module, "model", None)
     )
 
     try:
