@@ -1,16 +1,8 @@
-import os
 import sqlite3
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from app.config import get_db_path
-
-DB_PATH = os.getenv("ASSISTANT_DB_PATH", "assistant.db")
-
-
-def get_db_path() -> str:
-    """دریافت پویای مسیر پایگاه داده با اولویت متغیر محیطی ASSISTANT_DB_PATH."""
-    return os.getenv("ASSISTANT_DB_PATH", DB_PATH)
 
 
 def get_db_connection():
@@ -51,11 +43,10 @@ def init_db():
         );
     """)
 
-    # مهاجرت خودکار: افزودن ستون document_id در صورتی که جدول از قبل در دیتابیس قدیمی ساخته شده باشد
     try:
         cursor.execute("ALTER TABLE conversations ADD COLUMN document_id TEXT;")
     except sqlite3.OperationalError:
-        pass  # ستون از قبل وجود دارد
+        pass
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -68,7 +59,6 @@ def init_db():
         );
     """)
 
-    # جدول پروفایل سازمانی (فاز ۲۳)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS company_profile (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -81,19 +71,19 @@ def init_db():
         );
     """)
 
-    # درج مقادیر پیش‌فرض در صورت خالی بودن جدول
+    # در صورت وجود رکوردهای هاردکد قدیمی EFFE.EMME، آن‌ها را پاک می‌کنیم
+    cursor.execute("""
+        UPDATE company_profile
+        SET company_name = '', vat_number = '', address = '', rsga_name = '', technical_director = ''
+        WHERE company_name LIKE '%EFFE.EMME%';
+    """)
+
+    # ایجاد یک ردیف پیش‌فرض خالی در صورت عدم وجود
     cursor.execute("SELECT COUNT(*) FROM company_profile WHERE id = 1;")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
             INSERT INTO company_profile (id, company_name, vat_number, address, rsga_name, technical_director)
-            VALUES (
-                1,
-                'EFFE.EMME S.r.l.',
-                'IT 03412580048',
-                'Via dell''Artigianato 12, Cuneo (CN)',
-                'Laura Mellano / RSGA',
-                'Ermes Frossasco / Direzione Tecnica'
-            );
+            VALUES (1, '', '', '', '', '');
         """)
 
     conn.commit()
@@ -101,7 +91,7 @@ def init_db():
 
 
 def get_company_profile() -> Dict[str, Any]:
-    """دریافت آخرین اطلاعات پروفایل شرکت از دیتابیس."""
+    """دریافت آخرین اطلاعات پروفایل شرکت از دیتابیس (بدون مقادیر هاردکد پیش‌فرض)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT company_name, vat_number, address, rsga_name, technical_director, updated_at FROM company_profile WHERE id = 1;")
@@ -110,11 +100,11 @@ def get_company_profile() -> Dict[str, Any]:
     if row:
         return dict(row)
     return {
-        "company_name": "EFFE.EMME S.r.l.",
-        "vat_number": "IT 03412580048",
-        "address": "Via dell'Artigianato 12, Cuneo (CN)",
-        "rsga_name": "Laura Mellano / RSGA",
-        "technical_director": "Ermes Frossasco / Direzione Tecnica",
+        "company_name": "",
+        "vat_number": "",
+        "address": "",
+        "rsga_name": "",
+        "technical_director": "",
         "updated_at": datetime.now().isoformat()
     }
 
@@ -130,14 +120,15 @@ def update_company_profile(
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE company_profile
-        SET company_name = ?,
-            vat_number = ?,
-            address = ?,
-            rsga_name = ?,
-            technical_director = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1;
+        INSERT INTO company_profile (id, company_name, vat_number, address, rsga_name, technical_director, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+            company_name = excluded.company_name,
+            vat_number = excluded.vat_number,
+            address = excluded.address,
+            rsga_name = excluded.rsga_name,
+            technical_director = excluded.technical_director,
+            updated_at = CURRENT_TIMESTAMP;
     """, (company_name.strip(), vat_number.strip(), address.strip(), rsga_name.strip(), technical_director.strip()))
     conn.commit()
     conn.close()
@@ -164,7 +155,6 @@ def create_document(user_id: str, filename: str) -> str:
 
 
 def create_conversation(user_id: str, document_id: Optional[str] = None) -> str:
-    """ایجاد نشست مکالمه با پشتیبانی اختیاری از document_id جهت حفظ سازگاری کامل."""
     conv_id = str(uuid.uuid4())
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -191,7 +181,6 @@ def save_message(conversation_id: str, role: str, content: str) -> str:
 
 
 def get_conversation_history(conversation_id: str) -> List[Dict[str, Any]]:
-    """دریافت تاریخچه پیام‌ها همراه با شناسه یکتای پیام و ترتیب زمانی قطعی."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(

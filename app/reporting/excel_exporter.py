@@ -55,15 +55,17 @@ def create_styled_excel_report(
     ws_summary.views.sheetView[0].showGridLines = True
 
     workbook_title = meta.get("workbook_title", "REPORT DOCUMENT INTELLIGENCE")
-    ws_summary["A1"] = f"{workbook_title} — {comp_name.upper()}"
+    ws_summary["A1"] = f"{workbook_title} — {comp_name.upper()}" if comp_name else workbook_title
     ws_summary["A1"].font = Font(name="Segoe UI", size=13, bold=True, color="1E4D2B")
     
-    sub_line = f"P.IVA / C.F.: {vat_number}" if vat_number else ""
+    sub_parts = []
+    if vat_number:
+        sub_parts.append(f"P.IVA / C.F.: {vat_number}")
     if address:
-        sub_line += f" | Sede: {address}"
-    ws_summary["A2"] = sub_line
+        sub_parts.append(f"Sede: {address}")
+    ws_summary["A2"] = " | ".join(sub_parts)
     ws_summary["A2"].font = meta_font
-
+    
     ws_summary["A3"] = f"Generato il: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     ws_summary["A3"].font = meta_font
 

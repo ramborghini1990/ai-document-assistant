@@ -160,10 +160,62 @@ def extract_text_from_image(file_stream, filename: str) -> List[Dict[str, Any]]:
     return [{"page_number": 1, "text": text, "is_scanned": True}]
 
 
+def _clean_excel_dataframe(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    تشخیص هوشمند سطر سربرگ (Header) در فایل‌های اکسل و حذف ستون‌های Unnamed یا ناشناخته.
+    """
+    df_raw = df_raw.dropna(how="all").dropna(axis=1, how="all")
+    if df_raw.empty:
+        return df_raw
+
+    # در صورتی که فایل فقط ۱ سطر داشته باشد
+    if len(df_raw) == 1:
+        cols = [
+            f"Colonna_{i+1}" if (pd.isna(v) or not str(v).strip() or str(v).lower().startswith("unnamed")) 
+            else str(v).strip() 
+            for i, v in enumerate(df_raw.iloc[0])
+        ]
+        return pd.DataFrame(columns=cols)
+
+    # پیمایش ۱۰ سطر اول برای پیدا کردن سطری که حاوی اسامی واقعی ستون‌هاست
+    best_header_idx = 0
+    max_string_count = -1
+
+    for r_idx in range(min(10, len(df_raw))):
+        row_vals = df_raw.iloc[r_idx]
+        non_nulls = row_vals.dropna()
+        if non_nulls.empty:
+            continue
+
+        # شمارش خانه‌هایی که رشته متنی معنادار هستند (نه صرفاً ارقام عددی)
+        string_cells = [
+            str(v).strip() for v in non_nulls 
+            if isinstance(v, str) and not v.strip().replace(".", "").replace(",", "").isdigit()
+        ]
+        score = len(string_cells)
+
+        if score > max_string_count and len(non_nulls) >= 2:
+            max_string_count = score
+            best_header_idx = r_idx
+
+    raw_headers = df_raw.iloc[best_header_idx]
+    data_rows = df_raw.iloc[best_header_idx + 1:].copy()
+
+    clean_columns = []
+    for i, val in enumerate(raw_headers):
+        val_str = str(val).strip() if pd.notna(val) else ""
+        if not val_str or val_str.lower().startswith("unnamed") or val_str.lower() == "nan":
+            clean_columns.append(f"Colonna_{i+1}")
+        else:
+            clean_columns.append(val_str)
+
+    data_rows.columns = clean_columns
+    return data_rows.dropna(how="all")
+
+
 def extract_text_from_excel(file_stream, filename: str) -> List[Dict[str, Any]]:
     """
-    استخراج ساختاریافته داده‌های شیت‌ها و سطرهای دفاتر اکسل (.xlsx, .xls).
-    هر شیت به عنوان یک شماره صفحه مستقل لحاظ می‌شود تا قابلیت ردیابی سندی حفظ گردد.
+    استخراج ساختاریافته داده‌های شیت‌ها با تشخیص خودکار سربرگ واقعی و جلوگیری از ایجاد ستون‌های Unnamed.
     """
     if not file_stream:
         raise ValueError(f"File stream for '{filename}' is empty or invalid.")
@@ -179,25 +231,28 @@ def extract_text_from_excel(file_stream, filename: str) -> List[Dict[str, Any]]:
     for idx, sheet_name in enumerate(xls.sheet_names):
         page_num = idx + 1
         try:
-            df = pd.read_excel(xls, sheet_name=sheet_name)
+            # بارگذاری به صورت خام و تشخیص هوشمند هدر
+            df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+            df = _clean_excel_dataframe(df_raw)
         except Exception:
             continue
 
-        df = df.dropna(how="all").dropna(axis=1, how="all")
-        if df.empty:
+        if df.empty or len(df.columns) == 0:
             continue
 
         lines = [f"=== FOGLIO EXCEL: {sheet_name} (Pagina {page_num}) ==="]
         columns = [str(c).strip() for c in df.columns]
         lines.append(f"Colonne: {' | '.join(columns)}")
 
-        for r_idx, row in df.iterrows():
+        for r_idx, (_, row) in enumerate(df.iterrows()):
             row_items = []
             for col in df.columns:
                 val = row[col]
                 if pd.notna(val) and str(val).strip():
                     if isinstance(val, pd.Timestamp):
                         val_str = val.strftime('%Y-%m-%d')
+                    elif isinstance(val, float) and val.is_integer():
+                        val_str = str(int(val))
                     else:
                         val_str = str(val).strip()
                     row_items.append(f"{col}: {val_str}")

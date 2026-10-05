@@ -1,9 +1,6 @@
 import sys
 from pathlib import Path
-from app.extraction.registry import list_modules, get_module, reload_registry
-from app.config import RAG_TOP_K
 
-# ۱. تضمین مسیر ریشه پروژه در sys.path برای اجرای ماژولار و مستقیم
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -37,12 +34,13 @@ from app.rag.vectorstore import (
 )
 from app.rag.retriever import retrieve_relevant_chunks
 
-from app.extraction.registry import list_modules, get_module
+from app.extraction.registry import list_modules, get_module, reload_registry
 from app.extraction.extractor import extract_for_documents
 from app.extraction.review import records_to_dataframe, dataframe_to_records
 
 from app.reporting.excel_exporter import create_styled_excel_report, COLUMN_LABELS
 from app.reporting.word_exporter import create_styled_word_report
+from app.config import RAG_TOP_K
 from app.database.database import (
     init_db,
     create_user,
@@ -56,7 +54,7 @@ from app.database.database import (
 
 
 def initialize_session():
-    """مقداردهی اولیه دیتابیس و وضعیت نشست کاربر بدون پاک‌سازی وکتورهای سایر نشست‌ها."""
+    """مقداردهی اولیه با فیلدهای شرکتی کاملاً خالی در شروع هر نشست."""
     init_db()
     ensure_alert_tables()
 
@@ -74,22 +72,27 @@ def initialize_session():
 
     all_mods = list_modules()
     st.session_state.setdefault("active_module", all_mods[0].module_id if all_mods else "iso_14001")
-    st.session_state.setdefault("extracted_data", {})     # {module_id: {schema: result}}
-    st.session_state.setdefault("reviewed_data", {})      # {module_id: {schema: [records]}}
-    st.session_state.setdefault("editor_version", {})     # {(module_id, schema): int}
-    st.session_state.setdefault("export_fields", {})      # {module_id: {schema: [fields]}}
+    st.session_state.setdefault("extracted_data", {})
+    st.session_state.setdefault("reviewed_data", {})
+    st.session_state.setdefault("editor_version", {})
+    st.session_state.setdefault("export_fields", {})
 
+    # در شروع هر بار باز شدن وب‌اپ، اطلاعات شرکت کاملاً خالی است تا کاربر خودش پر کند
     if "company_profile" not in st.session_state:
-        st.session_state.company_profile = get_company_profile()
+        st.session_state.company_profile = {
+            "company_name": "",
+            "vat_number": "",
+            "address": "",
+            "rsga_name": "",
+            "technical_director": ""
+        }
 
 
 def reset_conversation():
-    """شروع نشست گفتگوی تازه."""
     st.session_state.conversation_id = create_conversation(st.session_state.user_id)
 
 
 def process_single_document(file) -> int:
-    """خط لوله استخراج و ایندکس با تضمین پاک‌سازی چانک‌های تکراری پیشین همان فایل."""
     pages = load_document_content(file, file.name)
     if not pages:
         raise ValueError("No readable text could be extracted from document.")
@@ -104,7 +107,6 @@ def process_single_document(file) -> int:
     chunk_texts = [c["text"] for c in chunks]
     embeddings = get_batch_embeddings(chunk_texts)
 
-    # جلوگیری از افزونگی چانک‌ها هنگام پردازش مجدد
     remove_document_from_chromadb(file.name, collection_name="document_chunks")
     store_chunks_in_chromadb(chunks, embeddings, collection_name="document_chunks")
     doc_id = create_document(st.session_state.user_id, file.name)
@@ -123,7 +125,6 @@ def process_single_document(file) -> int:
 
 
 def build_export_payload(mid: str) -> Dict[str, Any]:
-    """آماده‌سازی پکیج اکسپورت با اولویت‌دهی به بازبینی‌های انسانی."""
     out = {}
     mod_data = st.session_state.extracted_data.get(mid, {})
     for s_name, res in mod_data.items():
@@ -144,7 +145,6 @@ def render_ui():
     initialize_session()
     total_chunks = sum(doc["chunks"] for doc in st.session_state.indexed_documents.values())
 
-    # نوار کناری
     with st.sidebar:
         st.header("⚙️ Workspace & Standards")
 
@@ -158,20 +158,32 @@ def render_ui():
         current_module = available_mods[selected_mod_id]
 
         st.caption(f"**Versione Standard:** `{current_module.version}`")
+        if st.button("🔄 Ricarica Schemi (Hot Reload)", use_container_width=True, help="Ricarica i file JSON da schemas/ senza riavviare Streamlit"):
+            reload_registry()
+            st.success("Schemi e moduli aggiornati da disco!")
+            st.rerun()
+
         st.divider()
 
         with st.expander("🏢 Profilo Aziendale / Tenant", expanded=False):
             prof = st.session_state.company_profile
-            c_name = st.text_input("Ragione Sociale:", value=prof.get("company_name", ""))
-            c_vat = st.text_input("P.IVA / Codice Fiscale:", value=prof.get("vat_number", ""))
-            c_addr = st.text_input("Sede Operativa:", value=prof.get("address", ""))
-            c_rsga = st.text_input("Responsabile SGA / Referente:", value=prof.get("rsga_name", ""))
-            c_dir = st.text_input("Direzione Tecnica / Firmatario:", value=prof.get("technical_director", ""))
+            c_name = st.text_input("Ragione Sociale:", value=prof.get("company_name", ""), placeholder="es. Acme Solutions S.p.A.")
+            c_vat = st.text_input("P.IVA / Codice Fiscale:", value=prof.get("vat_number", ""), placeholder="es. IT12345678901")
+            c_addr = st.text_input("Sede Operativa:", value=prof.get("address", ""), placeholder="es. Via Roma 10, Torino (TO)")
+            c_rsga = st.text_input("Responsabile SGA / Referente:", value=prof.get("rsga_name", ""), placeholder="es. Ing. Mario Rossi")
+            c_dir = st.text_input("Direzione Tecnica / Firmatario:", value=prof.get("technical_director", ""), placeholder="es. Dott. Giuseppe Verdi")
 
             if st.button("💾 Salva Profilo Aziendale", use_container_width=True):
                 update_company_profile(c_name, c_vat, c_addr, c_rsga, c_dir)
-                st.session_state.company_profile = get_company_profile()
-                st.success("Profilo salvato!")
+                st.session_state.company_profile = {
+                    "company_name": c_name.strip(),
+                    "vat_number": c_vat.strip(),
+                    "address": c_addr.strip(),
+                    "rsga_name": c_rsga.strip(),
+                    "technical_director": c_dir.strip()
+                }
+                st.success("Profilo aziendale salvato!")
+                st.rerun()
 
         st.divider()
         st.subheader("📚 Active Knowledge Base")
@@ -182,13 +194,6 @@ def render_ui():
             for fname, meta in st.session_state.indexed_documents.items():
                 st.caption(f"✓ **{fname}** ({meta['chunks']} chunks)")
 
-        # در بخش سایدبار دقیقاً بعد از st.caption(f"**Versione Standard:** `{current_module.version}`"):
-        if st.button("🔄 Ricarica Schemi (Hot Reload)", use_container_width=True, help="Ricarica i file JSON da schemas/ senza riavviare Streamlit"):
-            reload_registry()
-            st.success("Schemi e moduli aggiornati da disco!")
-            st.rerun()
-        st.divider()
-        
         st.divider()
         if st.button("🔄 Nuova Sessione Chat", use_container_width=True):
             reset_conversation()
@@ -205,12 +210,11 @@ def render_ui():
                 st.success("Indice vettoriale azzerato!")
                 st.rerun()
 
-    active_comp = st.session_state.company_profile.get("company_name", "Azienda")
+    active_comp = st.session_state.company_profile.get("company_name", "").strip()
+    caption_tenant = f" | {active_comp}" if active_comp else ""
     st.title(f"📋 {current_module.label}")
-    st.caption(f"Enterprise Document Intelligence — Multi-Tenant Platform | {active_comp}")
+    st.caption(f"Enterprise Document Intelligence — Multi-Tenant Platform{caption_tenant}")
 
-
-    # آمار کارت‌های KPI
     mid = current_module.module_id
     total_docs = len(st.session_state.indexed_documents)
 
@@ -285,7 +289,7 @@ def render_ui():
             st.session_state.processing_errors = {}
 
         if st.session_state.indexed_documents:
-            st.success(f"Archivio attivo: {len(st.session_state.indexed_documents)} documenti pronti per RAG ed estrazione.")
+            st.success(f"Archivio attivo: {len(st.session_state.indexed_documents)} documenti pronti per RAG ed استrazione.")
 
         if st.session_state.processing_errors:
             st.error("Errori di elaborazione:")
@@ -316,7 +320,7 @@ def render_ui():
                     "Profondità di contesto (Top-K Chunks):",
                     min_value=1,
                     max_value=8,
-                    value=4,
+                    value=RAG_TOP_K,
                     help="Numero di frammenti di testo più rilevanti inviati al modello per la risposta."
                 )
             user_query = st.chat_input("Fai una domanda sui documenti...")
@@ -523,6 +527,5 @@ def render_ui():
                 st.write("**Destinatari Attivi:** " + ", ".join([f"`{r['channel'].upper()}: {r['address']}`" for r in curr_recs]))
 
 
-# فراخوانی صریح در صورت اجرای مستقیم فایل به عنوان اسکریپت Streamlit
 if __name__ == "__main__":
     render_ui()
