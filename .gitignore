@@ -11,3 +11,4 @@ chroma_data/
 *.db
 .DS_Store
 Thumbs.db
+repomix-output.xml

@@ -6,6 +6,8 @@ import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 from typing import Protocol
+from dotenv import load_dotenv
+load_dotenv()
 
 
 class Notifier(Protocol):
