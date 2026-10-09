@@ -1,0 +1,62 @@
+{
+  "module_id": "machinery_maintenance",
+  "label": "Macchinari & Asset — Manutenzione e Impianti",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are an industrial asset and machinery maintenance auditor. Extract machinery service reports, maintenance logs, inspection verbali, suppliers, serial numbers, intervention dates, and next mandatory maintenance deadlines verbatim. Never extrapolate dates or invent asset names. Return null if not found."
+  },
+  "report": {
+    "workbook_title": "REGISTRO MANUTENZIONE MACCHINARI E IMPIANTI",
+    "doc_title": "RAPPORTO MANUTENZIONE E VERIFICHE PERIODICHE",
+    "doc_subtitle": "Registro Interventi Tecnici, Collaudi e Prossime Manutenzioni",
+    "filename_prefix": "MANUTENZIONE",
+    "signoff": [
+      {"label": "Responsabile Manutenzione: {name}", "profile_key": "technical_director"},
+      {"label": "Direzione Tecnica: {name}", "profile_key": "company_name"}
+    ]
+  },
+  "schemas": {
+    "maintenance_log": {
+      "label": "Interventi e Verifiche Macchinari",
+      "description": "Estrazione verbali di collaudo, manutenzioni ordinarie/straordinarie, verifiche periodiche e contratti d'assistenza.",
+      "fields": {
+        "macchinario_asset": {
+          "type": "string",
+          "label": "Macchinario / Asset",
+          "required": true,
+          "description": "Nome macchina, matricola, impianto o attrezzatura di lavoro"
+        },
+        "tipo_documento": {
+          "type": "string",
+          "label": "Tipo Documento",
+          "description": "Verbale di manutenzione, Collaudo, Contratto di assistenza, Verifica periodica"
+        },
+        "fornitore_tecnico": {
+          "type": "string",
+          "label": "Fornitore / Tecnico",
+          "description": "Azienda incaricata dell'assistenza o tecnico manutentore"
+        },
+        "data_intervento": {
+          "type": "date",
+          "label": "Data Intervento",
+          "required": true,
+          "description": "Data di esecuzione della manutenzione o stipula contratto"
+        },
+        "prossima_scadenza": {
+          "type": "date",
+          "label": "Prossima Manutenzione / Scadenza",
+          "description": "Data prevista per la prossima verifica, revisione o scadenza contratto",
+          "alert": {
+            "thresholds_days": [90, 60, 30, 15, 7],
+            "label_fields": ["macchinario_asset", "tipo_documento"]
+          }
+        },
+        "esito_note": {
+          "type": "string",
+          "label": "Esito / Descrizione Intervento",
+          "description": "Dettaglio dell'intervento eseguito, parti sostituite o prescrizioni"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "module_id": "hr_training",
+  "label": "Risorse Umane — Formazione e Sicurezza",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are a professional HR and occupational safety compliance auditor (D.Lgs. 81/08). Extract employee training certificates, course titles, issuing bodies, issue dates, and mandatory renewal deadlines verbatim from the document text. Never invent dates or names. Return null if not explicitly found."
+  },
+  "report": {
+    "workbook_title": "REGISTRO FORMAZIONE E ABILITAZIONI PERSONALE",
+    "doc_title": "RAPPORTO FORMAZIONE E SICUREZZA LAVORATORI",
+    "doc_subtitle": "Tracciamento Attestati e Scadenze Rinnovi (D.Lgs. 81/08)",
+    "filename_prefix": "FORMAZIONE",
+    "signoff": [
+      {"label": "Responsabile Risorse Umane: {name}", "profile_key": "technical_director"},
+      {"label": "RSPP / Direzione: {name}", "profile_key": "rsga_name"}
+    ]
+  },
+  "schemas": {
+    "training_certificate": {
+      "label": "Attestati di Formazione",
+      "description": "Estrazione analitica di certificati di formazione, abilitazioni e date di scadenza aggiornamento per dipendente.",
+      "fields": {
+        "nominativo_dipendente": {
+          "type": "string",
+          "label": "Dipendente / Lavoratore",
+          "required": true,
+          "description": "Nome e cognome del lavoratore corsista"
+        },
+        "titolo_corso": {
+          "type": "string",
+          "label": "Titolo Corso / Abilitazione",
+          "required": true,
+          "description": "Denominazione del corso es. Formazione Generale, Antincendio, Carrellisti, RLS"
+        },
+        "ente_formatore": {
+          "type": "string",
+          "label": "Ente Formatore",
+          "description": "Soggetto formatore accreditato o azienda erogatrice"
+        },
+        "data_emissione": {
+          "type": "date",
+          "label": "Data Rilascio Attestato",
+          "required": true,
+          "description": "Data di superamento o rilascio dell'attestato"
+        },
+        "data_scadenza": {
+          "type": "date",
+          "label": "Data Scadenza / Rinnovo",
+          "description": "Data entro cui effettuare l'aggiornamento periodico obbligatorio",
+          "alert": {
+            "thresholds_days": [90, 60, 30, 15, 7],
+            "label_fields": ["nominativo_dipendente", "titolo_corso"]
+          }
+        },
+        "ore_corso": {
+          "type": "number",
+          "label": "Durata (Ore)",
+          "description": "Numero di ore di formazione svolte"
+        }
+      }
+    }
+  }
+}

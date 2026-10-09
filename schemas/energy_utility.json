@@ -1,0 +1,74 @@
+{
+  "module_id": "energy_utility",
+  "label": "Energia & Utenze — Monitoraggio e Fatture",
+  "version": "1.0.0",
+  "extraction": {
+    "system_prompt": "You are a specialized corporate utility bill and energy consumption auditor. Extract billing periods, POD codes, active electricity consumption in kWh, and total costs in Euro with absolute fidelity to the document. Never guess numbers or convert currencies. Return null if not explicitly found."
+  },
+  "report": {
+    "workbook_title": "REPORT CONSUMI ENERGETICI E UTENZE",
+    "doc_title": "RAPPORTO CONSUMI ENERGETICI E UTENZE",
+    "doc_subtitle": "Monitoraggio Bollette Elettriche e Spese Energetiche",
+    "filename_prefix": "ENERGIA",
+    "signoff": [
+      {"label": "Verificato da (Energy Manager: {name}):", "profile_key": "technical_director"},
+      {"label": "Approvato da (Direzione Aziendale: {name}):", "profile_key": "company_name"}
+    ]
+  },
+  "schemas": {
+    "energy_bill": {
+      "label": "Fatture e Bollette Elettriche",
+      "description": "Estrazione analitica di consumi elettrici (kWh), codice POD, costi complessivi e calcolo automatico del costo unitario (€/kWh).",
+      "fields": {
+        "fornitore": {
+          "type": "string",
+          "label": "Fornitore / Gestore",
+          "description": "Ragione sociale della compagnia fornitrice (es. eVISO, Enel, Eni)"
+        },
+        "codice_pod": {
+          "type": "string",
+          "label": "Codice POD",
+          "required": true,
+          "description": "Codice identificativo del punto di fornitura es. IT001E05324903"
+        },
+        "periodo_riferimento": {
+          "type": "string",
+          "label": "Periodo Fatturato",
+          "required": true,
+          "description": "Mese o intervallo temporale fatturato (es. Settembre 2025 o 31/08/2025 - 30/09/2025)"
+        },
+        "data_scadenza": {
+          "type": "date",
+          "label": "Data Scadenza Pagamento",
+          "description": "Termine ultimo di pagamento indicato in fattura",
+          "alert": {
+            "thresholds_days": [30, 15, 7],
+            "label_fields": ["fornitore", "codice_pod"]
+          }
+        },
+        "consumo_kwh": {
+          "type": "number",
+          "label": "Consumo Totale (kWh)",
+          "required": true,
+          "description": "Totale dell'energia attiva fatturata in kWh (es. 877)"
+        },
+        "costo_totale_eur": {
+          "type": "number",
+          "label": "Totale da Pagare (€)",
+          "required": true,
+          "description": "Importo complessivo della fattura in Euro compreso di IVA e oneri"
+        }
+      },
+      "computed": {
+        "costo_per_kwh": {
+          "op": "ratio",
+          "inputs": ["costo_totale_eur", "consumo_kwh"],
+          "scale": 1.0,
+          "decimals": 4,
+          "unit": "€/kWh",
+          "label": "Costo Medio (€/kWh)"
+        }
+      }
+    }
+  }
+}
