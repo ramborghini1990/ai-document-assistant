@@ -90,7 +90,7 @@ def test_word_report_regulatory_authorization_sections_and_empty_safety():
     waste_headers = [c.text for c in waste_table.rows[0].cells]
     assert waste_headers == [
         "Codici EER / Rifiuti Ammessi",
-        "Quantitativi autorizzati movimentabili",
+        "Quantitativi autorizzati movimentabili annui",
         "Quantitativi autorizzati in deposito",
     ]
     assert "Stato" not in waste_headers

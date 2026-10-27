@@ -781,9 +781,17 @@ def render_ui():
                 st.error("Invio non eseguito: " + " ".join(readiness.blockers))
             else:
                 send_errors: List[str] = []
-                with loader("Invio avvisi", "Invio email e SMS…", "bar"):
-                    ss.last_dispatch_result = ("live", dispatch_alerts(dry_run=False, errors=send_errors))
+                with st.spinner("Invio degli avvisi in corso…"):      # ephemeral: gone as soon as the dispatch ends
+                    result = dispatch_alerts(dry_run=False, errors=send_errors)
+                ss.last_dispatch_result = ("live", result)
                 ss.last_dispatch_errors = send_errors
+                n_sent = result.get("sent_email", 0) + result.get("sent_sms", 0)
+                if n_sent:
+                    st.success(f"Notifiche inviate con successo: {result.get('sent_email', 0)} email, "
+                               f"{result.get('sent_sms', 0)} SMS.")
+                    st.toast("Notifiche inviate!", icon=":material/check_circle:")
+                elif result.get("simulated", 0):
+                    st.info("Nessun messaggio reale inviato: il canale non è configurato, l'invio è stato solo simulato.")
         last = ss.get("last_dispatch_result")
         if last:
             mode, result = last

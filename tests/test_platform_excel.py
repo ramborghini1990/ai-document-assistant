@@ -72,7 +72,7 @@ def test_platform_excel_regulatory_authorization_expands_one_row_per_eer_code():
     headers = [c.value for c in ws[1]]
     i = headers.index("Codici EER / Rifiuti Ammessi")
     assert headers[i + 1:i + 6] == [
-        "Quantitativi autorizzati movimentabili", "U. di misura",
+        "Quantitativi autorizzati movimentabili annui", "U. di misura",
         "Quantitativi autorizzati in deposito", "U. di misura", "Operazioni di trattamento",
     ]
     assert "Stato" not in headers
