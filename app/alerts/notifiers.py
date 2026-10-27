@@ -5,7 +5,7 @@ import smtplib
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
-from typing import Protocol
+from typing import List, Protocol
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -54,6 +54,14 @@ class SmtpEmailNotifier:
     def configured(self) -> bool:
         return bool(self.host) and self.host != "localhost"
 
+    def missing_settings(self) -> List[str]:
+        """Environment variables that must be set before a real send is possible."""
+        return [] if self.configured else ["SMTP_HOST"]
+
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.user and self.password)
+
 
 class TwilioSmsNotifier:
     channel = "sms"
@@ -80,3 +88,7 @@ class TwilioSmsNotifier:
     @property
     def configured(self) -> bool:
         return bool(self.sid and self.token and self.sender)
+
+    def missing_settings(self) -> List[str]:
+        return [name for name, value in (("TWILIO_ACCOUNT_SID", self.sid), ("TWILIO_AUTH_TOKEN", self.token),
+                                         ("TWILIO_FROM", self.sender)) if not value]

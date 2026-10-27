@@ -7,8 +7,9 @@ in `schemas/*.json -> analytics` (validated in `registry._parse_schema`); nothin
 
 Zero-hallucination rules:
 - Only fields with status EXTRACTED / EDITED / CALCULATED and a real number are summed; nothing is estimated or filled.
-- A record is placed in the month where its period ENDS. A period longer than `max_span_months` (default 2) cannot be
-  attributed to a month without apportioning, so it is left out and counted in `records_unplaced`.
+- A period that covers N months (N <= `max_span_months`, default 2: bimonthly bills) is split into N equal shares, one per
+  covered month (value / N), so no covered month shows a false zero. A longer period (quarterly, annual) is not
+  apportioned: it is left out and counted in `records_unplaced`.
 - Year-over-year deltas compare ONLY the months that have data in both years, so a partial year is never compared with a
   full one.
 - Missing months stay `None` (never 0).
@@ -88,7 +89,7 @@ class ConsumptionAnalysis:
     matrices: Tuple[MetricMatrix, ...]
     records_used: int
     records_unplaced: int           # had values but no parseable period, or a period too long for one month
-    records_spanning: int           # placed in their end month although the period covers two months
+    records_spanning: int           # multi-month periods, apportioned in equal shares over the months they cover
     period_first: YearMonth
     period_last: YearMonth
 
@@ -308,7 +309,10 @@ def analyze_records(module_id: str, schema: SchemaDef, records: List[Dict[str, A
             continue
         used += 1
         spanning += span > 1
-        placed.append(end)
+        first = _ym_index(start)
+        months = [divmod(first + k, 12) for k in range(span)]
+        months = [(y, m + 1) for y, m in months]               # the N covered months, in order
+        placed.extend(months)
         dim = (_text(fields.get(dim_field)) if dim_field else "") or (NO_DIMENSION if dim_field else "")
         dim_names.setdefault(dim.casefold(), dim)
         for i, v in values:
@@ -316,7 +320,9 @@ def analyze_records(module_id: str, schema: SchemaDef, records: List[Dict[str, A
             unit = m.get("unit") or (_text(fields.get(m["unit_field"])) if m.get("unit_field") else "")
             key = (i, unit.casefold())
             unit_names.setdefault(key, unit)
-            acc.setdefault(key, {}).setdefault(dim.casefold(), {}).setdefault(end, []).append(v)
+            cells = acc.setdefault(key, {}).setdefault(dim.casefold(), {})
+            for ym in months:
+                cells.setdefault(ym, []).append(v / span)      # equal share per covered month
             counts[key] = counts.get(key, 0) + 1
 
     if not acc:

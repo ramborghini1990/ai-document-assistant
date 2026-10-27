@@ -729,7 +729,7 @@ _NAV_ICON_PATHS = (
     "<path d='M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.3A8 8 0 1 1 21 12z'/><path d='M8.5 12h.01M12 12h.01M15.5 12h.01'/>",
     # Estrazione & Revisione — bar chart
     "<path d='M4 20h16M7 20v-7M12 20V5M17 20v-10'/>",
-    # Scadenze & Allerte — calendar with clock hand
+    # Avvisi — calendar with clock hand
     "<rect x='3.5' y='5' width='17' height='15.5' rx='2'/><path d='M3.5 10h17M8 3v4M16 3v4M12 13v3l2 1.2'/>",
 )
 
@@ -1001,7 +1001,7 @@ def batch_message(prefix: str, current: int, total: int, percent: int, detail: s
 # Platform pipeline (analysis + report) milestones: (percent, Italian stage label)
 PIPELINE_STAGES: Tuple[Tuple[int, str], ...] = (
     (20, "Lettura e validazione dei documenti attivi dell'area di lavoro"),
-    (40, "Controlli di conformità deterministici e sincronizzazione delle scadenze (DB allerte)"),
+    (40, "Controlli di conformità deterministici e sincronizzazione delle scadenze (DB avvisi)"),
     (70, "Compilazione della cartella Excel multi-foglio e generazione dei grafici di trend"),
     (90, "Composizione del report Word di audit firmato"),
     (100, "Pipeline completata con successo: link di download pronti"),

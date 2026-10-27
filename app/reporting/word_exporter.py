@@ -80,7 +80,7 @@ def _summary_rows(a: ConsumptionAnalysis) -> List[Tuple[str, str]]:
                 rows.append((f"Mese di picco — {m.label}", f"{period_label((y, mo))} ({format_it(v)}{unit})"))
     rows.append(("Record considerati", str(a.records_used)))
     if a.records_spanning:
-        rows.append(("Periodi su due mesi", f"{a.records_spanning} (attribuiti al mese di fine periodo)"))
+        rows.append(("Periodi plurimensili", f"{a.records_spanning} (valori ripartiti pro-quota sui mesi di competenza)"))
     if a.records_unplaced:
         rows.append(("Record esclusi", f"{a.records_unplaced} (periodo assente o non attribuibile a un singolo mese)"))
     return rows

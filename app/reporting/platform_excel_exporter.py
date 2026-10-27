@@ -271,8 +271,9 @@ def write_trend_sheet(wb, analyses: List[ConsumptionAnalysis]) -> None:
     total_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
 
     _put(ws, 1, 1, "TREND & ANALISI CONSUMI", _font(size=16, bold=True, color=GREEN))
-    _put(ws, 2, 1, "Somme dei soli valori estratti (nessuna stima). Mesi senza dato = '-'. Variazioni calcolate sui soli mesi "
-                   "presenti in entrambi gli anni.", meta_font, Alignment(wrap_text=False))
+    _put(ws, 2, 1, "Somme dei soli valori estratti (nessuna stima); i periodi plurimensili sono ripartiti in parti uguali: "
+                   "valori ripartiti pro-quota sui mesi di competenza. Mesi senza dato = '-'. Variazioni calcolate sui soli "
+                   "mesi presenti in entrambi gli anni.", meta_font, Alignment(wrap_text=False))
     row = 4
     max_cols = 1
     for a in analyses:
@@ -280,7 +281,7 @@ def write_trend_sheet(wb, analyses: List[ConsumptionAnalysis]) -> None:
              _font(size=12, bold=True, color=GREEN), Alignment(wrap_text=False))
         notes = [f"{a.records_used} record attribuiti a un mese"]
         if a.records_spanning:
-            notes.append(f"{a.records_spanning} con periodo su due mesi attribuiti al mese di fine periodo")
+            notes.append(f"{a.records_spanning} con periodo plurimensile: valori ripartiti pro-quota sui mesi di competenza")
         if a.records_unplaced:
             notes.append(f"{a.records_unplaced} non attribuibili (periodo assente o superiore al limite) e quindi esclusi")
         _put(ws, row + 1, 1, " · ".join(notes), meta_font, Alignment(wrap_text=False))

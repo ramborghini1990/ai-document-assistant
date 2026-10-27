@@ -50,7 +50,7 @@ from app.extraction.pipeline import (
     merge_result, pending_tasks, run_batch_extraction, sync_deadlines_to_db,
 )
 from app.alerts.deadlines import extract_deadlines_from_records
-from app.alerts.dispatcher import dispatch_alerts
+from app.alerts.dispatcher import check_dispatch_readiness, dispatch_alerts
 from app.alerts.notifiers import SmtpEmailNotifier, TwilioSmsNotifier
 from app.reporting.platform_excel_exporter import create_platform_excel_report
 
@@ -114,6 +114,7 @@ def initialize_session():
     st.session_state.setdefault("platform_xlsx", None)    # (bytes, datetime)
     st.session_state.setdefault("platform_docx", None)    # (bytes, filename prefix) - same snapshot as platform_xlsx
     st.session_state.setdefault("last_dispatch_result", None)
+    st.session_state.setdefault("last_dispatch_errors", [])
 
     if "company_profile" not in st.session_state:
         st.session_state.company_profile = {
@@ -403,15 +404,18 @@ def render_ui():
     with st.sidebar:
         render_brand_header()
         st.markdown("<div class='nav-eyebrow'>WORKSPACE</div>", unsafe_allow_html=True)
+        nav_options = [
+            ":material/folder_open:  Area Documentale & Pipeline",
+            ":material/business:  Profilo Anagrafico & Utente",
+            ":material/chat:  Chat Documentale",
+            ":material/analytics:  Estrazione & Revisione",
+            ":material/notifications_active:  Avvisi",
+        ]
+        if ss.get("workspace_page") not in nav_options:       # session opened before a menu rename: start from the first page
+            ss.pop("workspace_page", None)
         page = st.radio(
             "Navigazione principale",
-            options=[
-                ":material/folder_open:  Area Documentale & Pipeline",
-                ":material/business:  Profilo Anagrafico & Utente",
-                ":material/chat:  Chat Documentale",
-                ":material/analytics:  Estrazione & Revisione",
-                ":material/notifications_active:  Scadenze & Allerte",
-            ],
+            options=nav_options,
             key="workspace_page",
             label_visibility="collapsed",
         )
@@ -466,9 +470,9 @@ def render_ui():
             "title": "Estrazione Dati & Revisione",
             "subtitle": "Validazione strutturata dei campi estratti, revisione umana e generazione report ufficiali.",
         },
-        "Scadenze": {
+        "Avvisi": {
             "title": "Monitoraggio Scadenze & Conformità",
-            "subtitle": "Controllo continuo dei rinnovi, obblighi di legge e dispatching allerte e-mail/SMS.",
+            "subtitle": "Controllo continuo dei rinnovi, obblighi di legge e invio degli avvisi e-mail/SMS.",
         },
     }
 
@@ -723,8 +727,8 @@ def render_ui():
                 st.download_button("Scarica report Word", word_bytes, file_name=f"Verbale_{prefix}_{datetime.now():%Y%m%d}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", icon=":material/description:", use_container_width=True)
 
     # PAGE 5 — deadlines and notifications
-    elif "Scadenze" in page:
-        section_title("Monitoraggio Scadenze & Allerte", "Scadenze attive, stato di conformità e gestione dei canali di notifica.")
+    elif "Avvisi" in page:
+        section_title("Monitoraggio Scadenze & Avvisi", "Scadenze attive, stato di conformità e gestione dei canali di notifica.")
         active = get_active_deadlines()
         today = datetime.now().date()
         overdue = 0
@@ -749,26 +753,52 @@ def render_ui():
         with c_sim:
             if st.button("Simula invio (dry-run)", icon=":material/science:", use_container_width=True):
                 ss.last_dispatch_result = ("dry_run", dispatch_alerts(dry_run=True))
-        email_ok = SmtpEmailNotifier().configured
-        sms_ok = TwilioSmsNotifier().configured
+        email_notifier, sms_notifier = SmtpEmailNotifier(), TwilioSmsNotifier()
         st.markdown("#### Canali di notifica")
         e1, e2 = st.columns(2)
-        e1.markdown(f"**Email** · {'Configurato' if email_ok else 'Non configurato'}")
-        e2.markdown(f"**SMS** · {'Configurato' if sms_ok else 'Non configurato'}")
-        if st.button("Invia allerte reali", icon=":material/send:", type="primary", use_container_width=True, disabled=not (email_ok or sms_ok)):
-            with loader("Invio notifiche", "Invio email e SMS…", "bar"):
-                ss.last_dispatch_result = ("live", dispatch_alerts(dry_run=False))
+        e1.markdown(f"**Email** · {'Configurato' if email_notifier.configured else 'Non configurato'}")
+        e2.markdown(f"**SMS** · {'Configurato' if sms_notifier.configured else 'Non configurato'}")
+        for name, notifier in (("Email", email_notifier), ("SMS", sms_notifier)):
+            if not notifier.configured:
+                st.caption(f"{name}: imposta {', '.join(notifier.missing_settings())} nel file .env "
+                           f"(o nei Secrets di Streamlit Cloud) e riavvia l'applicazione.")
+
+        readiness = check_dispatch_readiness()
+        st.markdown("#### Stato dell'invio")
+        if readiness.can_send:
+            st.success(f"Pronto per l'invio: {readiness.n_alerts} scadenze in soglia, "
+                       f"{readiness.pending} invii in attesa verso i destinatari raggiungibili.")
+        else:
+            for reason in readiness.blockers:
+                st.warning(reason)
+        for note in readiness.warnings:
+            st.info(note)
+
+        # The button is never disabled: a click always answers, either by sending or by explaining why nothing is sent.
+        if st.button("Invia avvisi", icon=":material/send:", type="primary", use_container_width=True):
+            if not readiness.can_send:
+                ss.last_dispatch_result = None
+                st.error("Invio non eseguito: " + " ".join(readiness.blockers))
+            else:
+                send_errors: List[str] = []
+                with loader("Invio avvisi", "Invio email e SMS…", "bar"):
+                    ss.last_dispatch_result = ("live", dispatch_alerts(dry_run=False, errors=send_errors))
+                ss.last_dispatch_errors = send_errors
         last = ss.get("last_dispatch_result")
         if last:
             mode, result = last
-            st.caption("Risultato simulazione" if mode == "dry_run" else "Risultato invio reale")
+            dry = mode == "dry_run"
+            st.caption("Risultato simulazione (nessun messaggio inviato)" if dry else "Risultato invio reale")
             render_stat_chips([
-                ("Email inviate", result.get("sent_email", 0), "ok" if result.get("sent_email", 0) else "muted"),
-                ("SMS inviati", result.get("sent_sms", 0), "ok" if result.get("sent_sms", 0) else "muted"),
+                ("Email da inviare" if dry else "Email inviate", result.get("sent_email", 0), "ok" if result.get("sent_email", 0) else "muted"),
+                ("SMS da inviare" if dry else "SMS inviati", result.get("sent_sms", 0), "ok" if result.get("sent_sms", 0) else "muted"),
                 ("Già gestite", result.get("skipped", 0), "muted"),
                 ("Simulate", result.get("simulated", 0), "warn" if result.get("simulated", 0) else "muted"),
                 ("Fallite", result.get("failed", 0), "crit" if result.get("failed", 0) else "muted"),
             ])
+            if not dry:
+                for err in ss.get("last_dispatch_errors") or []:
+                    st.error(err)
         st.markdown("#### Registro scadenze attive")
         if active:
             df = pd.DataFrame(active)

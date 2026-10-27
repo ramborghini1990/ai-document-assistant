@@ -101,10 +101,11 @@ def test_only_trusted_numbers_in_attributable_months_are_summed():
             bill("Novembre 2025", None),                           # no number at all
             bill("01/01/2025 - 31/03/2025", 300),                  # quarter: cannot be placed in one month
             bill("senza data", 400),                               # no period
-            bill("31/07/2025 - 31/08/2025", 200)]                  # two months: placed in the end month, flagged
+            bill("31/07/2025 - 31/08/2025", 200)]                  # two months: split 100 + 100, flagged
     a = analyze_records("energy_utility", energy_schema(), recs)
     kwh = matrix_of(a, "consumo_kwh")
-    assert kwh.total.totals == {2025: 300} and kwh.total.values[2025][7] == 200
+    assert kwh.total.totals == pytest.approx({2025: 300})
+    assert kwh.total.values[2025][6] == kwh.total.values[2025][7] == 100        # Jul and Aug share the bimonthly bill
     assert (a.records_used, a.records_unplaced, a.records_spanning) == (2, 2, 1)
 
 
@@ -226,3 +227,62 @@ def test_word_report_without_consumption_records_has_no_graphic_section():
         "numero_atto_protocollo": _f("1")}}]}}
     doc = Document(io.BytesIO(create_styled_word_report(data, ["a.pdf"], {"company_name": "X"}, module_id="iso_14001")))
     assert not any(TREND_SECTION_TITLE in p.text for p in doc.paragraphs) and len(doc.inline_shapes) == 0
+
+
+# ----------------------------------------------------------------------------- multi-month bills are apportioned
+@pytest.mark.offline
+@pytest.mark.parametrize("period,months", [
+    ("01 MAGGIO 2026 - 30 GIUGNO 2026", (5, 6)),
+    ("01 LUGLIO 2026 - 31 AGOSTO 2026", (7, 8)),
+    ("01/05/2026 - 30/06/2026", (5, 6)),
+    ("Maggio - Giugno 2026", (5, 6)),
+])
+def test_bimonthly_bill_is_split_equally_over_both_months(period, months):
+    a = analyze_records("energy_utility", energy_schema(), [bill(period, 1000, 300.0)])
+    kwh, cost = matrix_of(a, "consumo_kwh"), matrix_of(a, "costo_totale_eur")
+    first, second = months
+    for m, total in ((kwh, 1000), (cost, 300.0)):
+        row = m.total.values[2026]
+        assert row[first - 1] == row[second - 1] == pytest.approx(total / 2)        # 50% / 50%
+        assert [v for i, v in enumerate(row) if i + 1 not in months and v is not None] == []   # no other month touched
+        assert m.total.totals[2026] == pytest.approx(total)                         # nothing created or lost
+        assert m.total.months_with_data[2026] == 2
+    assert (a.records_used, a.records_spanning, a.records_unplaced) == (1, 1, 0)
+    assert a.period_first == (2026, first) and a.period_last == (2026, second)
+    assert kwh.n_records == 1                                                       # still one document
+
+
+@pytest.mark.offline
+def test_apportioning_keeps_monthly_bills_untouched_and_works_across_a_year_end_and_dimensions():
+    recs = [bill("Aprile 2026", 400, pod="A"), bill("Dicembre 2025 - Gennaio 2026", 600, pod="A"),
+            bill("Maggio 2026 - Giugno 2026", 101, pod="B")]
+    kwh = matrix_of(analyze_records("energy_utility", energy_schema(), recs), "consumo_kwh")
+    assert kwh.years == (2025, 2026)
+    assert kwh.total.values[2025][11] == 300 and kwh.total.values[2026][0] == 300     # Dec 2025 / Jan 2026
+    assert kwh.total.values[2026][3] == 400                                           # single month: whole value
+    assert kwh.total.values[2026][4] == kwh.total.values[2026][5] == 50.5
+    by_pod = {s.name: s for s in kwh.by_dimension}
+    assert by_pod["A"].totals == pytest.approx({2025: 300, 2026: 700}) and by_pod["B"].totals == {2026: 101}
+
+
+@pytest.mark.offline
+def test_periods_longer_than_the_limit_are_still_not_apportioned():
+    a = analyze_records("energy_utility", energy_schema(), [bill("Settembre 2025", 10), bill("01/01/2025 - 31/03/2025", 90)])
+    assert a.records_unplaced == 1 and matrix_of(a, "consumo_kwh").grand_total == 10
+
+
+@pytest.mark.offline
+def test_excel_trend_sheet_states_that_values_are_apportioned():
+    payload = {"energy_utility": {"energy_bill": {"records": [bill("01 LUGLIO 2026 - 31 AGOSTO 2026", 1000, 200.0)]}}}
+    out = create_platform_excel_report([{"filename": "bolletta.pdf"}], payload)
+    ws = openpyxl.load_workbook(io.BytesIO(out))[TREND_SHEET]
+    text = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
+    assert text.count("valori ripartiti pro-quota sui mesi di competenza") >= 2        # header note + per-analysis note
+    cells = {(c.row, c.column): c.value for row in ws.iter_rows() for c in row if c.value is not None}
+    rows = {}
+    for (r, c), v in sorted(cells.items()):                  # first occurrence = the consumption matrix
+        if c == 1 and isinstance(v, str):
+            rows.setdefault(v, r)
+    assert cells[(rows["Luglio"], 2)] == cells[(rows["Agosto"], 2)] == 500
+    assert cells[(rows["Totale"], 2)] == 1000
+
