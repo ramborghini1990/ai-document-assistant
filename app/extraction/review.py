@@ -67,10 +67,14 @@ def dataframe_to_records(df: pd.DataFrame, original: List[Dict[str, Any]], schem
         page = (orig or {}).get("source_page")
         src_doc = (orig or {}).get("source_document") or _cell_text(row.get("source_document")) or "manual"
 
-        out.append({
+        rec_out = {
             "source_document": src_doc,
             "source_page": page,
             "fields": fields,
             "warnings": warnings
-        })
+        }
+        # the record keeps its identity through edits, so its deadlines keep their ids and alert history
+        if (orig or {}).get("record_key"):
+            rec_out["record_key"] = orig["record_key"]
+        out.append(rec_out)
     return out

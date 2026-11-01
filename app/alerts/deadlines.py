@@ -12,6 +12,17 @@ def make_deadline_id(module_id: str, schema_name: str, doc: str, page: int, fiel
     return str(uuid.uuid5(NAMESPACE_DEADLINE, key))
 
 
+def make_record_deadline_id(module_id: str, schema_name: str, doc: str, record_key: str, field_name: str) -> str:
+    """
+    Stable deadline id for records that carry a `record_key` (assigned once at extraction time).
+    It does NOT depend on any field value, so correcting a label field (supplier, employee name...) or the
+    description during review keeps the same id and the alert_log de-duplication history.
+    The 'rk' prefix keeps this key space disjoint from the legacy `make_deadline_id` keys.
+    """
+    key = f"rk|{module_id}|{schema_name}|{doc}|{record_key}|{field_name}"
+    return str(uuid.uuid5(NAMESPACE_DEADLINE, key))
+
+
 def extract_deadlines_from_records(
     module_id: str,
     schema_name: str,
@@ -52,7 +63,11 @@ def extract_deadlines_from_records(
             desc_text = " — ".join(label_parts) if label_parts else f"{schema.label}: {fdef.label}"
             thresholds = fdef.alert.get("thresholds_days", [30, 15, 7])
 
-            d_id = make_deadline_id(module_id, schema_name, src_doc, src_page, fname, desc_text)
+            record_key = rec.get("record_key")
+            if record_key:
+                d_id = make_record_deadline_id(module_id, schema_name, src_doc, str(record_key), fname)
+            else:  # legacy records (extracted before record_key existed) and rows added by hand in review
+                d_id = make_deadline_id(module_id, schema_name, src_doc, src_page, fname, desc_text)
 
             out.append({
                 "id": d_id,

@@ -10,11 +10,12 @@ Plain dicts / primitives in, plain dicts / primitives out — no openpyxl, no St
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.extraction.normalizer import parse_number_token
+
 _SEPARATORS = " \t\r\n:;,|=–—-•"
 _NUMBER_UNIT = re.compile(
     r"^(?P<num>[-+]?\d[\d.,]*)\s*(?P<unit>[A-Za-zµ°%][A-Za-z0-9µ°%²³]*(?:\s*/\s*[A-Za-z0-9]+)?)?$"
 )
-_THOUSANDS = re.compile(r"^\d{1,3}(\.\d{3})+$")
 
 
 def unit_key(field_name: str) -> str:
@@ -65,17 +66,12 @@ def split_by_code(text: Optional[str], pattern: str) -> Tuple[Dict[str, str], st
 
 
 def parse_number(token: str) -> Optional[float]:
-    """'1.500,5' -> 1500.5, '1.500' -> 1500, '9' -> 9, '3,5' -> 3.5; None if not a number. Integral results are int."""
-    t = token.strip()
-    if "," in t and "." in t:
-        t = t.replace(".", "").replace(",", ".")
-    elif "," in t:
-        t = t.replace(",", ".")
-    elif _THOUSANDS.match(t):
-        t = t.replace(".", "")
-    try:
-        n = float(t)
-    except ValueError:
+    """'1.500,5' -> 1500.5, '1.500' -> 1500, '9' -> 9, '3,5' -> 3.5; None if not a number. Integral results are int.
+
+    Delegates to `normalizer.parse_number_token`, so reports and extraction can never read the same text differently.
+    """
+    n = parse_number_token(token)
+    if n is None:
         return None
     return int(n) if n.is_integer() else n
 

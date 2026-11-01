@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 from app.ai.gemini import generate_structured_json
 from app.extraction.calculators import compute_value, compute_expiry_date
-from app.extraction.normalizer import normalize_date, normalize_number, normalize_plate
+from app.extraction.normalizer import count_standalone_numbers, normalize_date, normalize_number, normalize_plate
 from app.extraction.registry import FieldDef, SchemaDef, get_module, resolve_schema
 
 _NULL_TOKENS = {"null", "none", "", "-", "n/a"}
@@ -34,6 +34,9 @@ def normalize_field(fdef: FieldDef, raw_value: Any, ok_status: str = "EXTRACTED"
         if not _valid_iso_date(norm):
             return {"raw_value": raw, "normalized_value": None, "status": "UNCERTAIN"}
     elif fdef.type == "number":
+        if count_standalone_numbers(raw) > 1:
+            # several figures in one value (e.g. 'IVA 22% su 1.234,00'): never pick one, a human decides
+            return {"raw_value": raw, "normalized_value": None, "status": "UNCERTAIN"}
         norm = normalize_number(raw)
         if norm is None:
             return {"raw_value": raw, "normalized_value": None, "status": "UNCERTAIN"}
@@ -154,6 +157,7 @@ def extract_structured_data(pages: List[Dict[str, Any]], schema_name: str = "sca
         raise ValueError(f"Failed to parse model JSON extraction output: {e}")
 
     records = []
+    per_page: Dict[int, int] = {}
     for rec in data.get("records") or []:
         raw_fields = rec.get("fields") or {}
         fields = {}
@@ -168,9 +172,13 @@ def extract_structured_data(pages: List[Dict[str, Any]], schema_name: str = "sca
         except (TypeError, ValueError):
             page = 1
 
+        # Stable identity of the record inside this document, independent of its field values:
+        # page + position among the records the model returned for that page. Review edits keep it.
+        per_page[page] = per_page.get(page, 0) + 1
         records.append({
             "source_document": source_document,
             "source_page": page,
+            "record_key": f"p{page}-r{per_page[page]}",
             "fields": fields,
             "warnings": warnings
         })

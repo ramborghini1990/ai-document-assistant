@@ -61,9 +61,56 @@ def normalize_date(raw_date_str: Optional[str]) -> Optional[str]:
     return raw_date_str.strip()
 
 
+_NUMBER_TOKEN = re.compile(r"[-+]?[0-9]+(?:[\.\,][0-9]+)*")
+# A number that stands on its own: not glued to letters or other digits, so unit suffixes such as
+# "m3", "CO2" or "L/100km" are not counted as separate figures.
+_STANDALONE_NUMBER = re.compile(r"(?<![A-Za-z0-9/])[-+]?[0-9]+(?:[\.\,][0-9]+)*(?![A-Za-z0-9])")
+_THOUSANDS_DOT = re.compile(r"^[-+]?\d{1,3}(\.\d{3})+$")
+
+
+def _token_to_float(token: str) -> Optional[float]:
+    """
+    Single source of truth for Italian/international separators (used by every number parser).
+    - '.' and ',' both present: the right-most one is the decimal separator ('1.250,50', '1,250.50').
+    - only ',': decimal comma ('250,00').
+    - only '.': thousands when it groups exactly 3 digits ('2.000', '1.234.567'), else decimal ('12.5').
+    """
+    t = token.strip()
+    if "." in t and "," in t:
+        if t.rfind(",") > t.rfind("."):
+            t = t.replace(".", "").replace(",", ".")
+        else:
+            t = t.replace(",", "")
+    elif "," in t:
+        t = t.replace(",", ".")
+    elif "." in t and _THOUSANDS_DOT.match(t):
+        t = t.replace(".", "")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_number_token(token: Optional[str]) -> Optional[float]:
+    """Strict: the whole token must be one number ('1.500,5' -> 1500.5, '9 t' -> None)."""
+    if token is None:
+        return None
+    t = str(token).strip()
+    if not _NUMBER_TOKEN.fullmatch(t):
+        return None
+    return _token_to_float(t)
+
+
+def count_standalone_numbers(text: Optional[str]) -> int:
+    """How many separate figures a raw value contains ('IVA 22% su 1.234,00' -> 2, '125 m3' -> 1)."""
+    return len(_STANDALONE_NUMBER.findall(str(text or "")))
+
+
 def normalize_number(raw_num_str: Optional[str]) -> Optional[float]:
     """
     نرمال‌سازی دقیق اعداد با فرمت ایتالیایی و بین‌المللی به عدد float استاندارد.
+    Returns the first number found in the text. Callers that must not guess when several figures are
+    present (extraction) check `count_standalone_numbers` first.
     """
     if raw_num_str is None:
         return None
@@ -71,31 +118,10 @@ def normalize_number(raw_num_str: Optional[str]) -> Optional[float]:
     if isinstance(raw_num_str, (int, float)):
         return float(raw_num_str)
 
-    val = str(raw_num_str).strip()
-    num_match = re.search(r"[-+]?[0-9]+(?:[\.\,][0-9]+)*", val)
+    num_match = _NUMBER_TOKEN.search(str(raw_num_str).strip())
     if not num_match:
         return None
-
-    clean_str = num_match.group(0)
-
-    # حالت ۱: هر دو کاراکتر نقطه و ویرگول وجود دارند (مثل 1.250,50 یا 1,250.50)
-    if "." in clean_str and "," in clean_str:
-        if clean_str.rfind(",") > clean_str.rfind("."):
-            clean_str = clean_str.replace(".", "").replace(",", ".")
-        else:
-            clean_str = clean_str.replace(",", "")
-    # حالت ۲: فقط ویرگول وجود دارد (اعشار ایتالیایی مثل 250,00 -> 250.00)
-    elif "," in clean_str:
-        clean_str = clean_str.replace(",", ".")
-    # حالت ۳: فقط نقطه وجود دارد (تشخیص هوشمند هزارگان ایتالیایی مثل 2.000 در برابر اعشار 12.5)
-    elif "." in clean_str:
-        if re.match(r"^\d{1,3}(\.\d{3})+$", clean_str):
-            clean_str = clean_str.replace(".", "")
-
-    try:
-        return float(clean_str)
-    except ValueError:
-        return None
+    return _token_to_float(num_match.group(0))
 
 
 def normalize_plate(plate_str: Optional[str]) -> Optional[str]:
